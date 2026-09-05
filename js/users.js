@@ -62,6 +62,10 @@ const UsersPage = {
       .cr-chk.on .cr-box{background:#2563eb;border-color:#2563eb}
       .cr-cd{margin-left:auto;font-size:11px;color:#9aa3af}
       .cr-chk.on .cr-cd{color:#2563eb}
+      .cr-chk.locked{background:#f8fafc;border-color:#eef0f3;cursor:not-allowed}
+      .cr-chk.locked .cr-box{border-color:#e5e7eb;background:#f0f1f3}
+      .cr-chk.locked .nm2{color:#9aa3af}
+      .cr-lockmgr{margin-left:auto;font-size:11px;color:#9a6400;background:#fff4e5;border:1px solid #f0d9a8;border-radius:5px;padding:1px 7px;white-space:nowrap}
       .cr-capline{margin-top:16px;border-top:1px solid #e5e7eb;padding-top:12px;font-size:12.5px;color:#6b7280}
       .cr-bar{display:flex;align-items:center;gap:12px;padding-top:16px;margin-top:4px}
       .cr-note{flex:1;font-size:12.5px;color:#6b7280}
@@ -163,11 +167,16 @@ const UsersPage = {
       `<option value="${r.roleId}" ${r.roleId === state.role ? 'selected' : ''} ${r.assignable ? '' : 'disabled'}>` +
       `${esc(r.roleName)} — ${esc(r.description)}${r.assignable ? '' : ' (admin only)'}</option>`).join('');
 
-    const deptBoxes = this.departments.map(d =>
-      `<label class="cr-chk" data-id="${d.departmentId}">
+    const deptBoxes = this.departments.map(d => {
+      const locked = d.managedByEmpId && String(d.managedByEmpId) !== String(emp.employeeId);
+      const right = locked
+        ? `<span class="cr-lockmgr" title="Already managed">${esc(d.managedByName || d.managedByEmpId)}</span>`
+        : `<span class="cr-cd">${esc(d.departmentId)}</span>`;
+      return `<label class="cr-chk${locked ? ' locked' : ''}" data-id="${d.departmentId}" ${locked ? 'data-locked="1"' : ''}>
          <span class="cr-box">✓</span>
-         <span>${esc(d.name)}</span><span class="cr-cd">${esc(d.departmentId)}</span>
-       </label>`).join('');
+         <span class="nm2">${esc(d.name)}</span>${right}
+       </label>`;
+    }).join('');
 
     const c = document.getElementById('pageContent');
     c.innerHTML = `
@@ -256,6 +265,7 @@ const UsersPage = {
     };
 
     grid.querySelectorAll('.cr-chk').forEach(el => el.addEventListener('click', () => {
+      if (el.dataset.locked) return; // department already has another manager
       const id = el.dataset.id;
       if (state.depts.includes(id)) state.depts = state.depts.filter(x => x !== id);
       else state.depts.push(id);
@@ -297,11 +307,12 @@ const UsersPage = {
           departmentIds: isMgr() ? state.depts : []
         });
         scrim.classList.remove('show');
-        this.toast('Saved · role set to ' + roleName(state.role));
-        // reflect new baseline
-        original.role = state.role; original.depts = state.depts.slice();
-        $('crCur').textContent = roleDisplay(original.role);
-        syncDept(); refresh();
+        const savedRole = roleName(state.role);
+        // reload authoritative state from the backend so what's shown == what's saved
+        // (departments/role reflect the sheet, not local guesses)
+        await this.openEditor(emp.employeeId);
+        this.toast('Saved · role set to ' + savedRole);
+        return;
       } catch (err) {
         // backend rejections (e.g. ROLE_ESCALATION_DENIED) preserve .code via API.post
         $('crWarn').innerHTML = `<div class="cr-err">${esc(err.message || 'Save failed')}${err.code ? ' (' + esc(err.code) + ')' : ''}</div>`;

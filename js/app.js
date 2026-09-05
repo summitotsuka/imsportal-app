@@ -1,3 +1,5 @@
+const ROLE_LABELS = { R001: 'Administrator', R002: 'QMS Manager', R003: 'QMS Reviewer', R004: 'User', R005: 'HR', R006: 'Department Manager' };
+
 document.addEventListener(
   'DOMContentLoaded',
   initializeApp
@@ -278,7 +280,7 @@ function setCurrentUser(user) {
   if (usernameElement) {
 
     usernameElement.textContent =
-      user.username || 'User';
+      user.fullName || user.username || 'User';
 
   }
 
@@ -286,7 +288,7 @@ function setCurrentUser(user) {
   if (roleElement) {
 
     roleElement.textContent =
-      user.roleId || '';
+      ROLE_LABELS[user.roleId] || user.roleId || '';
 
   }
 
