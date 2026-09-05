@@ -23,9 +23,12 @@ const API = {
       await response.json();
 
     if (!result.success) {
-      throw new Error(
-        result.message || 'API Error'
-      );
+      const error =
+        new Error(
+          result.message || 'API Error'
+        );
+      error.code = result.code || '';
+      throw error;
     }
 
     return result.data;

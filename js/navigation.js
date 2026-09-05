@@ -97,7 +97,13 @@ const NAVIGATION = {
     {
       id: 'admin',
       icon: '⚙️',
-      label: 'Administration'
+      label: 'Administration',
+      children: [
+        { id: 'users', label: 'Users' },
+        { id: 'departments', label: 'Departments' },
+        { id: 'roles', label: 'Roles & Permissions' },
+        { id: 'audit-log', label: 'Audit Log' }
+      ]
     }
 
   ]

@@ -318,6 +318,13 @@ function navigateTo(page) {
       break;
 
 
+    case 'users':
+
+      loadUsers();
+
+      break;
+
+
     default:
 
       loadComingSoon(page);
