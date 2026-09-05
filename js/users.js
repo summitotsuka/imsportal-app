@@ -113,14 +113,15 @@ const UsersPage = {
           <td>${esc(e.fullName)}</td>
           <td>${esc(e.department)}</td>
           <td>${esc(e.position)}</td>
+          <td>${esc(DISPLAY[e.roleId] || e.roleId || '')}</td>
           <td style="text-align:right">
-            <button class="cr-link" data-emp="${esc(e.employeeId)}">Change role</button>
+            <button class="cr-link" data-emp="${esc(e.employeeId)}">Update Role</button>
           </td>
         </tr>`).join('');
       document.getElementById('crList').innerHTML = `
         <table class="cr-tbl"><thead><tr>
-          <th>ID</th><th>Name</th><th>Department</th><th>Position</th><th></th>
-        </tr></thead><tbody>${rows || '<tr><td colspan="5" class="cr-faint">No employees</td></tr>'}</tbody></table>`;
+          <th>ID</th><th>Name</th><th>Department</th><th>Position</th><th>Role</th><th></th>
+        </tr></thead><tbody>${rows || '<tr><td colspan="6" class="cr-faint">No employees</td></tr>'}</tbody></table>`;
       document.querySelectorAll('#crList [data-emp]').forEach(b =>
         b.addEventListener('click', () => this.openEditor(b.dataset.emp)));
     } catch (err) {
