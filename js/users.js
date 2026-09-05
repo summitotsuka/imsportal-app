@@ -65,7 +65,7 @@ const UsersPage = {
       .cr-chk.locked{background:#f8fafc;border-color:#eef0f3;cursor:not-allowed}
       .cr-chk.locked .cr-box{border-color:#e5e7eb;background:#f0f1f3}
       .cr-chk.locked .nm2{color:#9aa3af}
-      .cr-lockmgr{margin-left:auto;font-size:11px;color:#9a6400;background:#fff4e5;border:1px solid #f0d9a8;border-radius:5px;padding:1px 7px;white-space:nowrap}
+      .cr-lockname{margin-left:auto;font-size:11px;color:#9aa3af;white-space:nowrap}
       .cr-capline{margin-top:16px;border-top:1px solid #e5e7eb;padding-top:12px;font-size:12.5px;color:#6b7280}
       .cr-bar{display:flex;align-items:center;gap:12px;padding-top:16px;margin-top:4px}
       .cr-note{flex:1;font-size:12.5px;color:#6b7280}
@@ -88,6 +88,18 @@ const UsersPage = {
         transition:.26s;z-index:1001;box-shadow:0 10px 30px rgba(0,0,0,.3)}
       .cr-toast.show{opacity:1;transform:translate(-50%,0)}
       .cr-err{background:#fef2f2;border:1px solid #f3cccc;color:#b91c1c;border-radius:8px;padding:11px 13px;font-size:13px}
+      .cr-wrap-list{max-width:1100px}
+      .cr-wrap-list .cr-tbl th,.cr-wrap-list .cr-tbl td{white-space:nowrap}
+      .cr-wrap-list .cr-tbl td:nth-child(2){min-width:180px;white-space:normal}
+      .cr-wrap-list .cr-tbl td:nth-child(3){min-width:150px}
+      .cr-ph{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+      .cr-field{margin-bottom:14px}
+      .cr-field label{display:block;font-size:13px;font-weight:600;margin-bottom:6px}
+      .cr-req{color:#b91c1c;margin-left:2px}
+      .cr-in{width:100%;font:inherit;font-size:14px;color:#1f2937;background:#fff;border:1px solid #d1d5db;border-radius:7px;padding:10px 12px}
+      .cr-in:focus{outline:2px solid #2563eb;outline-offset:1px;border-color:#2563eb}
+      .cr-2col{display:grid;grid-template-columns:1fr 1fr;gap:0 16px}
+      @media(max-width:560px){.cr-2col{grid-template-columns:1fr}}
     `;
     document.head.appendChild(s);
   },
@@ -100,10 +112,12 @@ const UsersPage = {
     const c = document.getElementById('pageContent');
     if (!c) return;
     c.innerHTML = `
-      <div class="page-header"><div><h1>Users</h1>
-        <p class="cr-muted">Administration — role &amp; department assignment</p></div></div>
-      <div class="cr-wrap"><div class="cr-card" id="crList">
+      <div class="page-header cr-ph"><div><h1>Users</h1>
+        <p class="cr-muted">Administration — role &amp; department assignment</p></div>
+        <button class="cr-btn cr-primary" id="crNew" type="button">+ New employee</button></div>
+      <div class="cr-wrap cr-wrap-list"><div class="cr-card" id="crList">
         <p class="cr-muted">Loading…</p></div></div>`;
+    document.getElementById('crNew').addEventListener('click', () => this.openCreate());
     try {
       const data = await API.get('listEmployees', { token: this.token() });
       const emps = data.employees || [];
@@ -142,16 +156,10 @@ const UsersPage = {
     document.getElementById('crBack').addEventListener('click', () => this.load());
 
     try {
-      const token = this.token();
-      const [empRes, rolesRes, deptRes, mgrRes] = await Promise.all([
-        API.get('getEmployee', { token, employeeId }),
-        API.get('getRoles', { token }),
-        API.get('getDepartments', { token }),
-        API.get('getEmployeeManagedDepartments', { token, employeeId })
-      ]);
-      this.roles = rolesRes.roles || [];
-      this.departments = deptRes.departments || [];
-      this.renderEditor(empRes.employee, (mgrRes.departmentIds || []));
+      const ctx = await API.get('getChangeRoleContext', { token: this.token(), employeeId });
+      this.roles = ctx.roles || [];
+      this.departments = ctx.departments || [];
+      this.renderEditor(ctx.employee, (ctx.managedDepartments || []));
     } catch (err) {
       const card = document.querySelector('#pageContent .cr-card');
       if (card) card.innerHTML = `<div class="cr-err">Could not open editor: ${esc(err.message || 'error')}</div>`;
@@ -171,7 +179,7 @@ const UsersPage = {
     const deptBoxes = this.departments.map(d => {
       const locked = d.managedByEmpId && String(d.managedByEmpId) !== String(emp.employeeId);
       const right = locked
-        ? `<span class="cr-lockmgr" title="Already managed">${esc(d.managedByName || d.managedByEmpId)}</span>`
+        ? `<span class="cr-lockname" title="Already managed">${esc(d.managedByName || d.managedByEmpId)}</span>`
         : `<span class="cr-cd">${esc(d.departmentId)}</span>`;
       return `<label class="cr-chk${locked ? ' locked' : ''}" data-id="${d.departmentId}" ${locked ? 'data-locked="1"' : ''}>
          <span class="cr-box">✓</span>
@@ -325,6 +333,88 @@ const UsersPage = {
     // init
     syncDept(); reveal(); cap(); refresh();
     window.addEventListener('resize', reveal);
+  },
+
+  async openCreate() {
+    const c = document.getElementById('pageContent');
+    c.innerHTML = `<div class="cr-wrap"><button class="cr-back" id="crBack">← Back to users</button>
+      <div class="cr-card"><p class="cr-muted">Loading…</p></div></div>`;
+    document.getElementById('crBack').addEventListener('click', () => this.load());
+    try {
+      const dep = await API.get('getDepartments', { token: this.token() });
+      this.renderCreate(dep.departments || []);
+    } catch (err) {
+      const card = document.querySelector('#pageContent .cr-card');
+      if (card) card.innerHTML = `<div class="cr-err">${esc(err.message || 'Could not load form')}</div>`;
+    }
+  },
+
+  renderCreate(departments) {
+    const deptOpts = departments.map(d => `<option value="${esc(d.departmentId)}">${esc(d.name)} (${esc(d.departmentId)})</option>`).join('');
+    const c = document.getElementById('pageContent');
+    c.innerHTML = `
+      <div class="cr-wrap">
+        <button class="cr-back" id="crBack">← Back to users</button>
+        <div class="page-header"><div><h1>New employee</h1></div></div>
+        <div class="cr-card">
+          <div class="cr-2col">
+            <div class="cr-field"><label>Employee ID <span class="cr-req">*</span></label><input class="cr-in" id="fEmp" autocomplete="off"></div>
+            <div class="cr-field"><label>Full name <span class="cr-req">*</span></label><input class="cr-in" id="fName"></div>
+          </div>
+          <div class="cr-2col">
+            <div class="cr-field"><label>Department <span class="cr-req">*</span></label>
+              <div class="cr-sel-w"><select class="cr-sel" id="fDept"><option value="">— select —</option>${deptOpts}</select></div></div>
+            <div class="cr-field"><label>Position</label><input class="cr-in" id="fPos"></div>
+          </div>
+          <div class="cr-2col">
+            <div class="cr-field"><label>Start date <span class="cr-req">*</span></label><input class="cr-in" id="fStart" type="date"></div>
+            <div class="cr-field"><label>Email <span class="cr-req">*</span></label><input class="cr-in" id="fEmail" type="email"></div>
+          </div>
+          <div class="cr-2col">
+            <div class="cr-field"><label>Phone</label><input class="cr-in" id="fPhone"></div>
+            <div></div>
+          </div>
+          <div id="fErr"></div>
+          <div class="cr-bar">
+            <div class="cr-note">New accounts start as <b>User</b>, pending activation.</div>
+            <button class="cr-btn cr-ghost" id="fCancel" type="button">Cancel</button>
+            <button class="cr-btn cr-primary" id="fSave" type="button">Create</button>
+          </div>
+        </div>
+      </div>
+      <div class="cr-toast" id="crToast"></div>`;
+
+    const $ = id => document.getElementById(id);
+    $('crBack').addEventListener('click', () => this.load());
+    $('fCancel').addEventListener('click', () => this.load());
+    $('fSave').addEventListener('click', async () => {
+      const v = {
+        employeeId: $('fEmp').value.trim(),
+        fullName: $('fName').value.trim(),
+        departmentId: $('fDept').value,
+        position: $('fPos').value.trim(),
+        startDate: $('fStart').value,
+        email: $('fEmail').value.trim(),
+        phone: $('fPhone').value.trim()
+      };
+      const missing = [];
+      if (!v.employeeId) missing.push('Employee ID');
+      if (!v.fullName) missing.push('Full name');
+      if (!v.departmentId) missing.push('Department');
+      if (!v.startDate) missing.push('Start date');
+      if (!v.email) missing.push('Email');
+      if (missing.length) { $('fErr').innerHTML = `<div class="cr-err">Please fill: ${esc(missing.join(', '))}</div>`; return; }
+
+      const btn = $('fSave'); btn.disabled = true; btn.textContent = 'Creating…';
+      try {
+        await API.post('createUser', Object.assign({ token: this.token() }, v));
+        this.toast('Employee created · ' + v.employeeId);
+        setTimeout(() => this.load(), 700);
+      } catch (err) {
+        $('fErr').innerHTML = `<div class="cr-err">${esc(err.message || 'Create failed')}${err.code ? ' (' + esc(err.code) + ')' : ''}</div>`;
+        btn.disabled = false; btn.textContent = 'Create';
+      }
+    });
   },
 
   toast(msg) {
