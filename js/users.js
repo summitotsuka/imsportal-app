@@ -100,6 +100,16 @@ const UsersPage = {
       .cr-in:focus{outline:2px solid #2563eb;outline-offset:1px;border-color:#2563eb}
       .cr-2col{display:grid;grid-template-columns:1fr 1fr;gap:0 16px}
       @media(max-width:560px){.cr-2col{grid-template-columns:1fr}}
+      .cr-badge{font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px;white-space:nowrap}
+      .cr-b-ok{background:#e7f6ec;color:#15803d}
+      .cr-b-off{background:#f0f1f3;color:#6b7280}
+      .cr-b-pend{background:#fff4e5;color:#9a6400}
+      .cr-filter{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+      .cr-chip{font:inherit;font-size:12.5px;border:1px solid #d1d5db;background:#fff;color:#6b7280;border-radius:999px;padding:4px 12px;cursor:pointer}
+      .cr-chip.on{background:#172033;color:#fff;border-color:#172033}
+      .cr-danger{background:#b91c1c;color:#fff}.cr-danger:hover{filter:brightness(1.12)}
+      .cr-acct{display:flex;align-items:center;justify-content:space-between;gap:12px}
+      .cr-link+.cr-link{margin-left:12px}
     `;
     document.head.appendChild(s);
   },
@@ -107,37 +117,54 @@ const UsersPage = {
   token() { return AUTH.getToken(); },
 
   /* ---------------- LIST VIEW ---------------- */
-  async load() {
+  async load(filter) {
     this.injectCss();
     const c = document.getElementById('pageContent');
     if (!c) return;
+    this._filter = filter || this._filter || 'ACTIVE';
+    const role = curRoleId();
+    const canEmpData = HR_ROLES.includes(role);
+    const chips = ['ACTIVE', 'ALL', 'INACTIVE'].map(f =>
+      `<button class="cr-chip${this._filter === f ? ' on' : ''}" data-filter="${f}">${f.charAt(0) + f.slice(1).toLowerCase()}</button>`).join('');
     c.innerHTML = `
       <div class="page-header cr-ph"><div><h1>Users</h1>
-        <p class="cr-muted">Administration — role &amp; department assignment</p></div>
-        <button class="cr-btn cr-primary" id="crNew" type="button">+ New employee</button></div>
-      <div class="cr-wrap cr-wrap-list"><div class="cr-card" id="crList">
-        <p class="cr-muted">Loading…</p></div></div>`;
-    document.getElementById('crNew').addEventListener('click', () => this.openCreate());
+        <p class="cr-muted">Administration — user &amp; role management</p></div>
+        ${canEmpData ? '<button class="cr-btn cr-primary" id="crEmpData" type="button">Employee Data</button>' : ''}</div>
+      <div class="cr-wrap cr-wrap-list">
+        <div class="cr-filter"><span class="cr-muted" style="font-size:12.5px">Show:</span>${chips}</div>
+        <div class="cr-card" id="crList"><p class="cr-muted">Loading…</p></div>
+      </div>`;
+    if (canEmpData) document.getElementById('crEmpData').addEventListener('click', () => this.openEmployeeData());
+    document.querySelectorAll('.cr-filter [data-filter]').forEach(b =>
+      b.addEventListener('click', () => this.load(b.dataset.filter)));
     try {
       const data = await API.get('listEmployees', { token: this.token() });
-      const emps = data.employees || [];
-      const rows = emps.map(e => `
-        <tr>
+      let emps = data.employees || [];
+      if (this._filter === 'ACTIVE') emps = emps.filter(e => String(e.status || '').toUpperCase() === 'ACTIVE');
+      else if (this._filter === 'INACTIVE') emps = emps.filter(e => String(e.status || '').toUpperCase() !== 'ACTIVE');
+      const isMgr = ROLE_MGR_ROLES.includes(role);
+      const rows = emps.map(e => {
+        const acts = [];
+        if (canEmpData) acts.push(`<button class="cr-link" data-edit="${esc(e.employeeId)}">Edit</button>`);
+        if (isMgr) acts.push(`<button class="cr-link" data-role="${esc(e.employeeId)}">Update Role</button>`);
+        return `<tr>
           <td class="cr-id">${esc(e.employeeId)}</td>
           <td>${esc(e.fullName)}</td>
           <td>${esc(e.department)}</td>
           <td>${esc(e.position)}</td>
           <td>${esc(DISPLAY[e.roleId] || e.roleId || '')}</td>
-          <td style="text-align:right">
-            <button class="cr-link" data-emp="${esc(e.employeeId)}">Update Role</button>
-          </td>
-        </tr>`).join('');
+          <td>${statusBadge(e.status)}</td>
+          <td style="text-align:right;white-space:nowrap">${acts.join('') || '<span class="cr-faint">—</span>'}</td>
+        </tr>`;
+      }).join('');
       document.getElementById('crList').innerHTML = `
         <table class="cr-tbl"><thead><tr>
-          <th>ID</th><th>Name</th><th>Department</th><th>Position</th><th>Role</th><th></th>
-        </tr></thead><tbody>${rows || '<tr><td colspan="6" class="cr-faint">No employees</td></tr>'}</tbody></table>`;
-      document.querySelectorAll('#crList [data-emp]').forEach(b =>
-        b.addEventListener('click', () => this.openEditor(b.dataset.emp)));
+          <th>ID</th><th>Name</th><th>Department</th><th>Position</th><th>Role</th><th>Status</th><th></th>
+        </tr></thead><tbody>${rows || '<tr><td colspan="7" class="cr-faint">No employees</td></tr>'}</tbody></table>`;
+      document.querySelectorAll('#crList [data-role]').forEach(b =>
+        b.addEventListener('click', () => this.openEditor(b.dataset.role)));
+      document.querySelectorAll('#crList [data-edit]').forEach(b =>
+        b.addEventListener('click', () => this.openEmployeeData(b.dataset.edit)));
     } catch (err) {
       this.showListError(err);
     }
@@ -221,6 +248,12 @@ const UsersPage = {
             <button class="cr-btn cr-ghost" id="crReset" type="button">Reset</button>
             <button class="cr-btn cr-primary" id="crSave" type="button" disabled>Save changes</button>
           </div>
+        </div>
+
+        <div class="cr-card cr-acct">
+          <div><div class="cr-label" style="margin:0">Account access</div>
+            <div class="cr-muted" style="font-size:12.5px;margin-top:2px">Login to the system</div></div>
+          <div style="display:flex;align-items:center;gap:12px" id="crAcctBox"></div>
         </div>
       </div>
 
@@ -334,6 +367,27 @@ const UsersPage = {
     // init
     syncDept(); reveal(); cap(); refresh();
     window.addEventListener('resize', reveal);
+
+    // account activation (role managers)
+    (function (self) {
+      const box = document.getElementById('crAcctBox');
+      if (!box) return;
+      const st = String(emp.status || '').toUpperCase();
+      box.innerHTML = statusBadge(emp.status) + (st === 'INACTIVE'
+        ? ' <button class="cr-btn cr-ghost" id="crReact" type="button">Reactivate account</button>'
+        : ' <button class="cr-btn cr-danger" id="crDeact" type="button">Deactivate account</button>');
+      const dBtn = document.getElementById('crDeact'), rBtn = document.getElementById('crReact');
+      if (dBtn) dBtn.addEventListener('click', () => self.promptMaster('Deactivate account', (pw, done) => {
+        API.post('deactivateAccount', { token: self.token(), employeeId: emp.employeeId, masterPassword: pw })
+          .then(() => { done(); self.toast('Account deactivated'); self.openEditor(emp.employeeId); })
+          .catch(ex => done((ex && ex.message) || 'Failed'));
+      }));
+      if (rBtn) rBtn.addEventListener('click', () => {
+        API.post('reactivateAccount', { token: self.token(), employeeId: emp.employeeId })
+          .then(() => { self.toast('Account reactivated'); self.openEditor(emp.employeeId); })
+          .catch(ex => self.toast((ex && ex.message) || 'Failed'));
+      });
+    })(this);
   },
 
   async openCreate() {
@@ -419,6 +473,164 @@ const UsersPage = {
     });
   },
 
+  /* ---------------- Employee Data (ADMIN + HR) ---------------- */
+  async openEmployeeData(preloadId) {
+    this.injectCss();
+    const c = document.getElementById('pageContent');
+    c.innerHTML = `
+      <div class="cr-wrap">
+        <button class="cr-back" id="crBack">← Back to users</button>
+        <div class="page-header cr-ph"><div><h1>Employee Data</h1></div>
+          <button class="cr-btn cr-primary" id="crNew2" type="button">+ New employee</button></div>
+        <div class="cr-card">
+          <div class="cr-label">Find employee by ID</div>
+          <div style="display:flex;gap:8px">
+            <input class="cr-in" id="crSearch" placeholder="Employee ID" style="flex:1" value="${esc(preloadId || '')}">
+            <button class="cr-btn cr-primary" id="crSearchBtn" type="button">Search</button>
+          </div>
+        </div>
+        <div id="crEmpSlot"></div>
+      </div>
+      <div class="cr-toast" id="crToast"></div>`;
+    document.getElementById('crBack').addEventListener('click', () => this.load());
+    document.getElementById('crNew2').addEventListener('click', () => this.openCreate());
+    const doSearch = () => this.loadEmployeeForEdit(document.getElementById('crSearch').value.trim());
+    document.getElementById('crSearchBtn').addEventListener('click', doSearch);
+    document.getElementById('crSearch').addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+    if (preloadId) this.loadEmployeeForEdit(preloadId);
+  },
+
+  async loadEmployeeForEdit(employeeId) {
+    if (!employeeId) return;
+    const slot = document.getElementById('crEmpSlot');
+    slot.innerHTML = `<div class="cr-card"><p class="cr-muted">Loading…</p></div>`;
+    try {
+      const [empRes, depRes] = await Promise.all([
+        API.get('getEmployee', { token: this.token(), employeeId: employeeId }),
+        API.get('getDepartments', { token: this.token() })
+      ]);
+      this.departments = depRes.departments || [];
+      this.renderEmployeeEditor(empRes.employee);
+    } catch (err) {
+      slot.innerHTML = `<div class="cr-card"><div class="cr-err">${esc(err.message || 'Employee not found')}</div></div>`;
+    }
+  },
+
+  renderEmployeeEditor(emp) {
+    const deptOpts = this.departments.map(d =>
+      `<option value="${esc(d.departmentId)}" ${d.departmentId === emp.departmentId ? 'selected' : ''}>${esc(d.name)} (${esc(d.departmentId)})</option>`).join('');
+    const resigned = String(emp.status || '').toUpperCase() !== 'ACTIVE';
+    const slot = document.getElementById('crEmpSlot');
+    slot.innerHTML = `
+      <div class="cr-card">
+        <div class="cr-who" style="margin-bottom:14px">
+          <div class="cr-av">${esc((emp.fullName || '?').charAt(0))}</div>
+          <div><div class="cr-name">${esc(emp.fullName)}</div>
+            <div class="cr-meta"><span><span class="k">ID</span><span class="cr-id">${esc(emp.employeeId)}</span></span> ${statusBadge(emp.status)}</div></div>
+        </div>
+        <div class="cr-2col">
+          <div class="cr-field"><label>Full name <span class="cr-req">*</span></label><input class="cr-in" id="eName" value="${esc(emp.fullName)}"></div>
+          <div class="cr-field"><label>Department <span class="cr-req">*</span></label><div class="cr-sel-w"><select class="cr-sel" id="eDept">${deptOpts}</select></div></div>
+        </div>
+        <div class="cr-2col">
+          <div class="cr-field"><label>Position</label><input class="cr-in" id="ePos" value="${esc(emp.position)}"></div>
+          <div class="cr-field"><label>Section</label><input class="cr-in" id="eSec" value="${esc(emp.section || '')}"></div>
+        </div>
+        <div class="cr-2col">
+          <div class="cr-field"><label>Start date</label><input class="cr-in" id="eStart" type="date" value="${esc(String(emp.startDate || '').slice(0, 10))}"></div>
+          <div class="cr-field"><label>Email <span class="cr-req">*</span></label><input class="cr-in" id="eEmail" type="email" value="${esc(emp.email || '')}"></div>
+        </div>
+        <div class="cr-2col">
+          <div class="cr-field"><label>Phone</label><input class="cr-in" id="ePhone" value="${esc(emp.phone || '')}"></div>
+          <div class="cr-field"><label>Telegram ID</label><input class="cr-in" id="eTg" value="${esc(emp.telegramChatId || '')}"></div>
+        </div>
+        <div id="eErr"></div>
+        <div class="cr-bar">
+          <div class="cr-note"></div>
+          <button class="cr-btn cr-ghost" id="eReset" type="button">Reset password</button>
+          ${resigned
+            ? '<button class="cr-btn cr-ghost" id="eUnresign" type="button">Un-resign</button>'
+            : '<button class="cr-btn cr-danger" id="eResign" type="button">Set resigned</button>'}
+          <button class="cr-btn cr-primary" id="eSave" type="button">Save changes</button>
+        </div>
+      </div>`;
+
+    const $ = id => document.getElementById(id);
+    const err = m => { $('eErr').innerHTML = m ? `<div class="cr-err">${esc(m)}</div>` : ''; };
+    const self = this;
+
+    $('eSave').addEventListener('click', async () => {
+      const v = {
+        employeeId: emp.employeeId, fullName: $('eName').value.trim(), departmentId: $('eDept').value,
+        position: $('ePos').value.trim(), section: $('eSec').value.trim(), startDate: $('eStart').value,
+        email: $('eEmail').value.trim(), phone: $('ePhone').value.trim(), telegramChatId: $('eTg').value.trim()
+      };
+      if (!v.fullName || !v.email) { err('Full name and Email are required.'); return; }
+      const b = $('eSave'); b.disabled = true; b.textContent = 'Saving…';
+      try {
+        await API.post('updateEmployee', Object.assign({ token: self.token() }, v));
+        self.toast('Saved'); self.loadEmployeeForEdit(emp.employeeId);
+      } catch (ex) { err((ex && ex.message) || 'Save failed'); b.disabled = false; b.textContent = 'Save changes'; }
+    });
+
+    $('eReset').addEventListener('click', () => {
+      if (!confirm('Reset this employee password? They must activate again to set a new one.')) return;
+      API.post('resetPassword', { token: self.token(), employeeId: emp.employeeId })
+        .then(() => { self.toast('Password reset — account is now pending'); self.loadEmployeeForEdit(emp.employeeId); })
+        .catch(ex => err((ex && ex.message) || 'Reset failed'));
+    });
+
+    if ($('eResign')) $('eResign').addEventListener('click', () => {
+      self.promptMaster('Set employee as resigned', (pw, done) => {
+        API.post('resignEmployee', { token: self.token(), employeeId: emp.employeeId, masterPassword: pw })
+          .then(() => { done(); self.toast('Employee set as resigned'); self.loadEmployeeForEdit(emp.employeeId); })
+          .catch(ex => done((ex && ex.message) || 'Failed'));
+      });
+    });
+    if ($('eUnresign')) $('eUnresign').addEventListener('click', () => {
+      API.post('unresignEmployee', { token: self.token(), employeeId: emp.employeeId })
+        .then(() => { self.toast('Resignation reversed'); self.loadEmployeeForEdit(emp.employeeId); })
+        .catch(ex => err((ex && ex.message) || 'Failed'));
+    });
+  },
+
+  /* ---------------- master password modal (reusable) ---------------- */
+  promptMaster(title, onConfirm) {
+    let modal = document.getElementById('crMasterScrim');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'crMasterScrim'; modal.className = 'cr-scrim';
+      modal.innerHTML = `<div class="cr-modal">
+        <h2 id="crMTitle" style="margin:0 0 3px;font-size:16px"></h2>
+        <p class="cr-muted" style="font-size:12.5px;margin:0 0 14px">Enter the confirmation (master) password to proceed.</p>
+        <input class="cr-in" id="crMPw" type="password" placeholder="Master password" autocomplete="off">
+        <div id="crMErr" style="margin-top:8px"></div>
+        <div style="display:flex;gap:9px;justify-content:flex-end;margin-top:16px">
+          <button class="cr-btn cr-ghost" id="crMCancel" type="button">Cancel</button>
+          <button class="cr-btn cr-danger" id="crMOk" type="button">Confirm</button>
+        </div></div>`;
+      document.body.appendChild(modal);
+    }
+    const $ = id => document.getElementById(id);
+    $('crMTitle').textContent = title;
+    $('crMPw').value = ''; $('crMErr').innerHTML = '';
+    modal.classList.add('show');
+    setTimeout(() => $('crMPw').focus(), 30);
+    const close = () => modal.classList.remove('show');
+    $('crMCancel').onclick = close;
+    modal.onclick = e => { if (e.target === modal) close(); };
+    $('crMOk').onclick = () => {
+      const pw = $('crMPw').value;
+      if (!pw) { $('crMErr').innerHTML = '<div class="cr-err">Password required</div>'; return; }
+      const ok = $('crMOk'); ok.disabled = true; ok.textContent = '…';
+      onConfirm(pw, (errMsg) => {
+        ok.disabled = false; ok.textContent = 'Confirm';
+        if (errMsg) $('crMErr').innerHTML = `<div class="cr-err">${esc(errMsg)}</div>`;
+        else close();
+      });
+    };
+  },
+
   toast(msg) {
     const t = document.getElementById('crToast');
     if (!t) return;
@@ -427,6 +639,14 @@ const UsersPage = {
   }
 };
 
+const HR_ROLES = ['R001', 'R005', 'R007', 'R008'];
+const ROLE_MGR_ROLES = ['R001', 'R002'];
+function curRoleId() { try { return String((AUTH.getUser() || {}).roleId || ''); } catch (e) { return ''; } }
+function statusBadge(status) {
+  const s = String(status || '').toUpperCase();
+  const m = { ACTIVE: ['Active', 'cr-b-ok'], INACTIVE: ['Inactive', 'cr-b-off'], PENDING: ['Pending', 'cr-b-pend'] }[s] || ['—', 'cr-b-off'];
+  return `<span class="cr-badge ${m[1]}">${m[0]}</span>`;
+}
 const DISPLAY = { R001: 'Administrator', R002: 'QMS Manager', R003: 'QMS Reviewer', R004: 'User', R005: 'HR', R006: 'Department Manager' };
 function esc(v) { return String(v == null ? '' : v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 
