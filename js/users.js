@@ -372,7 +372,7 @@ const UsersPage = {
           </div>
           <div class="cr-2col">
             <div class="cr-field"><label>Phone</label><input class="cr-in" id="fPhone"></div>
-            <div></div>
+            <div class="cr-field"><label>Telegram ID</label><input class="cr-in" id="fTelegram" autocomplete="off"></div>
           </div>
           <div id="fErr"></div>
           <div class="cr-bar">
@@ -395,7 +395,8 @@ const UsersPage = {
         position: $('fPos').value.trim(),
         startDate: $('fStart').value,
         email: $('fEmail').value.trim(),
-        phone: $('fPhone').value.trim()
+        phone: $('fPhone').value.trim(),
+        telegramChatId: $('fTelegram').value.trim()
       };
       const missing = [];
       if (!v.employeeId) missing.push('Employee ID');
