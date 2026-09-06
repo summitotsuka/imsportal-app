@@ -15,7 +15,8 @@
     '.login-alt{text-align:center;margin-top:14px}' +
     '.link-btn{background:none;border:0;color:#2563eb;font:inherit;font-size:13px;cursor:pointer;padding:4px}' +
     '.link-btn:hover{text-decoration:underline}' +
-    '.login-ok{background:#e7f6ec;border:1px solid #b7e0c4;color:#15803d;border-radius:7px;padding:10px 12px;font-size:13px;margin-bottom:10px}';
+    '.login-ok{background:#e7f6ec;border:1px solid #b7e0c4;color:#15803d;border-radius:7px;padding:10px 12px;font-size:13px;margin-bottom:10px}' +
+    '.login-hint{font-size:12.5px;color:#6b7280;line-height:1.5;margin-bottom:6px}';
   document.head.appendChild(st);
 
   ready(function () {
@@ -76,34 +77,10 @@
       }
     });
 
-    /* ---------------- Forgot password ---------------- */
-    function resetForgot() {
-      clear(['fgEmp', 'fgStart', 'fgEmail', 'fgPw', 'fgPw2']);
-      hide('forgotError'); hide('forgotOk');
-    }
+    /* ---------------- Forgot password (contact HR) ---------------- */
     var showForgot = $('showForgotLink');
-    if (showForgot) showForgot.addEventListener('click', function () { resetForgot(); show(forgotCard); });
+    if (showForgot) showForgot.addEventListener('click', function () { show(forgotCard); });
     var backF = $('backToLoginF');
     if (backF) backF.addEventListener('click', function () { show(loginCard); });
-
-    var forgotForm = $('forgotForm');
-    if (forgotForm) forgotForm.addEventListener('submit', async function (e) {
-      e.preventDefault();
-      var employeeId = val('fgEmp').trim(), startDate = val('fgStart'), email = val('fgEmail').trim(),
-          pw = val('fgPw'), pw2 = val('fgPw2');
-      hide('forgotError'); hide('forgotOk');
-      if (!employeeId || !startDate || !email || !pw) { msg('forgotError', 'Please fill all required fields.'); return; }
-      if (pw !== pw2) { msg('forgotError', 'Passwords do not match.'); return; }
-      var btn = $('forgotButton'); btn.disabled = true; btn.textContent = 'RESETTING…';
-      try {
-        await API.post('resetPasswordSelf', { employeeId: employeeId, startDate: startDate, email: email, password: pw });
-        msg('forgotOk', 'Password updated. You can now log in.');
-        setTimeout(function () { show(loginCard); }, 1800);
-      } catch (ex) {
-        msg('forgotError', (ex && ex.message) ? ex.message : 'Reset failed.');
-      } finally {
-        btn.disabled = false; btn.textContent = 'RESET PASSWORD';
-      }
-    });
   });
 })();
