@@ -239,7 +239,8 @@ const UsersPage = {
     const $ = id => document.getElementById(id);
     const sel = $('crRole'), deptSec = $('crDept'), grid = $('crGrid'),
           countEl = $('crCount'), capEl = $('crCap'), saveBtn = $('crSave'), noteEl = $('crNote');
-    const isMgr = () => state.role === 'R006';
+    const DEPT_MGR_ROLES = ['R006', 'R007'];
+    const isMgr = () => DEPT_MGR_ROLES.includes(state.role);
 
     const syncDept = () => {
       grid.querySelectorAll('.cr-chk').forEach(el => {
