@@ -1,6 +1,7 @@
-/* js/activate.js — self-service account activation on the login screen.
-   Public flow (no session): verify Employee ID + Start date + Email, set a
-   password, then the account becomes ACTIVE. Calls activateSelf. */
+/* js/activate.js — login-screen self-service flows (public, no session):
+   • Activate account : step 1 verify identity  → step 2 set first password
+   • Forgot password  : verify identity + set a new password
+   Calls verifyActivation / activateSelf / resetPasswordSelf. */
 (function () {
   function $(id) { return document.getElementById(id); }
   function ready(fn) {
@@ -8,9 +9,9 @@
     else document.addEventListener('DOMContentLoaded', fn);
   }
 
-  // minimal styles (link + success banner) — app.css has no equivalents
   var st = document.createElement('style');
   st.textContent =
+    '.login-links{display:flex;justify-content:space-between;gap:12px;margin-top:14px}' +
     '.login-alt{text-align:center;margin-top:14px}' +
     '.link-btn{background:none;border:0;color:#2563eb;font:inherit;font-size:13px;cursor:pointer;padding:4px}' +
     '.link-btn:hover{text-decoration:underline}' +
@@ -18,43 +19,90 @@
   document.head.appendChild(st);
 
   ready(function () {
-    var loginCard = $('loginCard'), activateCard = $('activateCard');
-    if (!activateCard || !loginCard) return;
+    var loginCard = $('loginCard'), activateCard = $('activateCard'), forgotCard = $('forgotCard');
+    if (!loginCard) return;
 
+    function show(el) { [loginCard, activateCard, forgotCard].forEach(function (c) { if (c) c.hidden = (c !== el); }); }
     function hide(id) { var el = $(id); if (el) { el.hidden = true; el.textContent = ''; } }
-    function err(m) { var el = $('activateError'); el.textContent = m; el.hidden = false; hide('activateOk'); }
-    function ok(m) { var el = $('activateOk'); el.textContent = m; el.hidden = false; hide('activateError'); }
-    function resetForm() {
-      ['acEmp', 'acStart', 'acEmail', 'acPw', 'acPw2'].forEach(function (id) { var el = $(id); if (el) el.value = ''; });
-      hide('activateError'); hide('activateOk');
+    function msg(id, m) { var el = $(id); if (!el) return; el.textContent = m; el.hidden = false; }
+    function val(id) { var el = $(id); return el ? el.value : ''; }
+    function clear(ids) { ids.forEach(function (id) { var el = $(id); if (el) el.value = ''; }); }
+
+    /* ---------------- Activate (2-step) ---------------- */
+    function resetActivate() {
+      clear(['acEmp', 'acStart', 'acEmail', 'acPw', 'acPw2']);
+      $('acStep1').hidden = false; $('acStep2').hidden = true;
+      hide('acVerifyError'); hide('activateError'); hide('activateOk');
     }
-    function showActivate() { loginCard.hidden = true; activateCard.hidden = false; }
-    function showLogin() { activateCard.hidden = true; loginCard.hidden = false; resetForm(); }
 
-    var showLink = $('showActivateLink'); if (showLink) showLink.addEventListener('click', showActivate);
-    var backLink = $('backToLoginLink'); if (backLink) backLink.addEventListener('click', showLogin);
+    var showActivate = $('showActivateLink');
+    if (showActivate) showActivate.addEventListener('click', function () { resetActivate(); show(activateCard); });
+    var backA = $('backToLoginA');
+    if (backA) backA.addEventListener('click', function () { show(loginCard); });
 
-    var form = $('activateForm');
-    if (form) form.addEventListener('submit', async function (e) {
-      e.preventDefault();
-      var employeeId = $('acEmp').value.trim(),
-          startDate = $('acStart').value,
-          email = $('acEmail').value.trim(),
-          pw = $('acPw').value,
-          pw2 = $('acPw2').value;
+    var verifyBtn = $('acVerifyButton');
+    if (verifyBtn) verifyBtn.addEventListener('click', async function () {
+      var employeeId = val('acEmp').trim(), startDate = val('acStart'), email = val('acEmail').trim();
+      hide('acVerifyError');
+      if (!employeeId || !startDate || !email) { msg('acVerifyError', 'Please fill Employee ID, Start date and Email.'); return; }
+      verifyBtn.disabled = true; verifyBtn.textContent = 'VERIFYING…';
+      try {
+        var data = await API.post('verifyActivation', { employeeId: employeeId, startDate: startDate, email: email });
+        $('acVerifiedName').textContent = 'Verified: ' + (data && data.fullName ? data.fullName : employeeId);
+        $('acStep1').hidden = true; $('acStep2').hidden = false;
+      } catch (ex) {
+        msg('acVerifyError', (ex && ex.message) ? ex.message : 'Verification failed.');
+      } finally {
+        verifyBtn.disabled = false; verifyBtn.textContent = 'VERIFY';
+      }
+    });
 
-      if (!employeeId || !startDate || !email || !pw) { err('Please fill all required fields.'); return; }
-      if (pw !== pw2) { err('Passwords do not match.'); return; }
-
-      var btn = $('activateButton'); btn.disabled = true; btn.textContent = 'ACTIVATING…';
+    var activateBtn = $('activateButton');
+    if (activateBtn) activateBtn.addEventListener('click', async function () {
+      var employeeId = val('acEmp').trim(), startDate = val('acStart'), email = val('acEmail').trim(),
+          pw = val('acPw'), pw2 = val('acPw2');
+      hide('activateError'); hide('activateOk');
+      if (!pw) { msg('activateError', 'Please enter a new password.'); return; }
+      if (pw !== pw2) { msg('activateError', 'Passwords do not match.'); return; }
+      activateBtn.disabled = true; activateBtn.textContent = 'ACTIVATING…';
       try {
         await API.post('activateSelf', { employeeId: employeeId, startDate: startDate, email: email, password: pw });
-        ok('Account activated. You can now log in.');
-        setTimeout(showLogin, 1800);
+        msg('activateOk', 'Account activated. You can now log in.');
+        setTimeout(function () { show(loginCard); }, 1800);
       } catch (ex) {
-        err((ex && ex.message) ? ex.message : 'Activation failed.');
+        msg('activateError', (ex && ex.message) ? ex.message : 'Activation failed.');
       } finally {
-        btn.disabled = false; btn.textContent = 'ACTIVATE';
+        activateBtn.disabled = false; activateBtn.textContent = 'SET PASSWORD & ACTIVATE';
+      }
+    });
+
+    /* ---------------- Forgot password ---------------- */
+    function resetForgot() {
+      clear(['fgEmp', 'fgStart', 'fgEmail', 'fgPw', 'fgPw2']);
+      hide('forgotError'); hide('forgotOk');
+    }
+    var showForgot = $('showForgotLink');
+    if (showForgot) showForgot.addEventListener('click', function () { resetForgot(); show(forgotCard); });
+    var backF = $('backToLoginF');
+    if (backF) backF.addEventListener('click', function () { show(loginCard); });
+
+    var forgotForm = $('forgotForm');
+    if (forgotForm) forgotForm.addEventListener('submit', async function (e) {
+      e.preventDefault();
+      var employeeId = val('fgEmp').trim(), startDate = val('fgStart'), email = val('fgEmail').trim(),
+          pw = val('fgPw'), pw2 = val('fgPw2');
+      hide('forgotError'); hide('forgotOk');
+      if (!employeeId || !startDate || !email || !pw) { msg('forgotError', 'Please fill all required fields.'); return; }
+      if (pw !== pw2) { msg('forgotError', 'Passwords do not match.'); return; }
+      var btn = $('forgotButton'); btn.disabled = true; btn.textContent = 'RESETTING…';
+      try {
+        await API.post('resetPasswordSelf', { employeeId: employeeId, startDate: startDate, email: email, password: pw });
+        msg('forgotOk', 'Password updated. You can now log in.');
+        setTimeout(function () { show(loginCard); }, 1800);
+      } catch (ex) {
+        msg('forgotError', (ex && ex.message) ? ex.message : 'Reset failed.');
+      } finally {
+        btn.disabled = false; btn.textContent = 'RESET PASSWORD';
       }
     });
   });
