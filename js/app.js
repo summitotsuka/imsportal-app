@@ -1,4 +1,4 @@
-const ROLE_LABELS = { R001: 'Administrator', R002: 'QMS Manager', R003: 'QMS Reviewer', R004: 'User', R005: 'HR', R006: 'Department Manager' };
+const ROLE_LABELS = { R001: 'Administrator', R002: 'QMS Manager', R003: 'QMS Reviewer', R004: 'User', R005: 'HR', R006: 'Department Manager', R007: 'HR Manager', R008: 'HR Staff' };
 
 document.addEventListener(
   'DOMContentLoaded',
