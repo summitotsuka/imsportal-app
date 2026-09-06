@@ -119,31 +119,63 @@
 
     </form>
 
-    <div class="login-alt">
+    <div class="login-links">
       <button type="button" id="showActivateLink" class="link-btn">Activate account</button>
+      <button type="button" id="showForgotLink" class="link-btn">Forgot password</button>
     </div>
 
   </div>
 
+  <!-- Activate: step 1 verify, step 2 set password -->
   <div class="login-card" id="activateCard" hidden>
 
     <div class="login-logo">IMS</div>
     <div class="login-title">Activate account</div>
     <div class="login-subtitle">Verify your details, then set a password</div>
 
-    <form id="activateForm">
-      <div class="login-field"><label for="acEmp">Employee ID</label><input type="text" id="acEmp" autocomplete="off" required></div>
-      <div class="login-field"><label for="acStart">Start date</label><input type="date" id="acStart" required></div>
-      <div class="login-field"><label for="acEmail">Email</label><input type="email" id="acEmail" required></div>
-      <div class="login-field"><label for="acPw">New password</label><input type="password" id="acPw" autocomplete="new-password" required></div>
-      <div class="login-field"><label for="acPw2">Confirm password</label><input type="password" id="acPw2" autocomplete="new-password" required></div>
+    <div id="acStep1">
+      <div class="login-field"><label for="acEmp">Employee ID</label><input type="text" id="acEmp" autocomplete="off"></div>
+      <div class="login-field"><label for="acStart">Start date</label><input type="date" id="acStart"></div>
+      <div class="login-field"><label for="acEmail">Email</label><input type="email" id="acEmail"></div>
+      <div id="acVerifyError" class="login-error" hidden></div>
+      <button type="button" id="acVerifyButton" class="login-button">VERIFY</button>
+    </div>
+
+    <div id="acStep2" hidden>
+      <div class="login-ok" id="acVerifiedName"></div>
+      <div class="login-field"><label for="acPw">New password</label><input type="password" id="acPw" autocomplete="new-password"></div>
+      <div class="login-field"><label for="acPw2">Confirm password</label><input type="password" id="acPw2" autocomplete="new-password"></div>
       <div id="activateOk" class="login-ok" hidden></div>
       <div id="activateError" class="login-error" hidden></div>
-      <button type="submit" id="activateButton" class="login-button">ACTIVATE</button>
+      <button type="button" id="activateButton" class="login-button">SET PASSWORD &amp; ACTIVATE</button>
+    </div>
+
+    <div class="login-alt">
+      <button type="button" id="backToLoginA" class="link-btn">&larr; Back to login</button>
+    </div>
+
+  </div>
+
+  <!-- Forgot password: verify identity + set a new password -->
+  <div class="login-card" id="forgotCard" hidden>
+
+    <div class="login-logo">IMS</div>
+    <div class="login-title">Forgot password</div>
+    <div class="login-subtitle">Verify your details and set a new password</div>
+
+    <form id="forgotForm">
+      <div class="login-field"><label for="fgEmp">Employee ID</label><input type="text" id="fgEmp" autocomplete="off" required></div>
+      <div class="login-field"><label for="fgStart">Start date</label><input type="date" id="fgStart" required></div>
+      <div class="login-field"><label for="fgEmail">Email</label><input type="email" id="fgEmail" required></div>
+      <div class="login-field"><label for="fgPw">New password</label><input type="password" id="fgPw" autocomplete="new-password" required></div>
+      <div class="login-field"><label for="fgPw2">Confirm password</label><input type="password" id="fgPw2" autocomplete="new-password" required></div>
+      <div id="forgotOk" class="login-ok" hidden></div>
+      <div id="forgotError" class="login-error" hidden></div>
+      <button type="submit" id="forgotButton" class="login-button">RESET PASSWORD</button>
     </form>
 
     <div class="login-alt">
-      <button type="button" id="backToLoginLink" class="link-btn">&larr; Back to login</button>
+      <button type="button" id="backToLoginF" class="link-btn">&larr; Back to login</button>
     </div>
 
   </div>
