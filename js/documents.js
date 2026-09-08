@@ -116,6 +116,7 @@ const DocumentsPage = {
       .dc-toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:#172033;color:#fff;font-size:13.5px;padding:10px 18px;border-radius:8px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:60}
       .dc-toast.show{opacity:1}
       .dc-file{font-size:13px;border:1px dashed #cbd5e1;border-radius:8px;padding:10px;background:#fafbfc}
+      .dc-warn{margin-top:10px;background:#fff4e5;border:1px solid #fde3b8;color:#9a6400;font-size:13px;border-radius:8px;padding:9px 12px}
     `;
     document.head.appendChild(s);
   },
@@ -302,6 +303,10 @@ const DocumentsPage = {
     const c = document.getElementById('pageContent');
     const sharedIds = String(doc.SharedDepartments || '').split(',').map(x => x.trim()).filter(Boolean);
     const sharedNames = sharedIds.map(id => this.deptName(id));
+    const ackDepts = (ack.acknowledgements || []).map(a => String(a.DepartmentID).trim());
+    const ackTargets = [String(doc.DepartmentID).trim()].concat(sharedIds);
+    const skippedAck = (String(doc.Status).toUpperCase() === 'EFFECTIVE')
+      ? ackTargets.filter((d, i) => d && ackTargets.indexOf(d) === i && ackDepts.indexOf(d) === -1) : [];
     const ackRows = (ack.acknowledgements || []).map(a => `
       <tr><td>${dEsc(this.deptName(a.DepartmentID))}</td>
         <td>${String(a.Status).toUpperCase() === 'ACKNOWLEDGED' ? '<span class="dc-badge dc-b-ok">Acknowledged</span>' : '<span class="dc-badge dc-b-off">Pending</span>'}</td>
@@ -337,11 +342,12 @@ const DocumentsPage = {
           </div>
         </div>
 
-        ${(ack.acknowledgements && ack.acknowledgements.length) ? `
+        ${((ack.acknowledgements && ack.acknowledgements.length) || skippedAck.length) ? `
         <div class="dc-card">
           <div class="dc-ph" style="margin-bottom:10px"><h2 style="margin:0;font-size:15px">Acknowledgement</h2>
             <span class="dc-muted" style="font-size:13px">${ack.acknowledged}/${ack.total} departments</span></div>
-          <table class="dc-tbl"><thead><tr><th>Department</th><th>Status</th><th>By</th><th>When</th></tr></thead><tbody>${ackRows}</tbody></table>
+          ${ack.acknowledgements && ack.acknowledgements.length ? `<table class="dc-tbl"><thead><tr><th>Department</th><th>Status</th><th>By</th><th>When</th></tr></thead><tbody>${ackRows}</tbody></table>` : ''}
+          ${skippedAck.length ? `<div class="dc-warn">⚠ ข้ามการรับทราบ (ไม่มีหัวหน้าฝ่าย): ${skippedAck.map(d => dEsc(this.deptName(d))).join(', ')}</div>` : ''}
         </div>` : ''}
 
         <div class="dc-card">
