@@ -182,10 +182,12 @@ const DocumentsPage = {
     this.injectCss();
     const c = document.getElementById('pageContent');
     c.innerHTML = `<div class="dc-wrap"><button class="dc-back" id="dcBack">← Back</button><div class="dc-card"><p class="dc-muted">Loading…</p></div></div>`;
-    let deps = [];
-    try { deps = (await API.get('getDepartments', { token: this.token() })).departments || []; } catch (e) { }
+    let deps = [], myDept = (this.data && this.data.department) || '';
+    try {
+      const ctx = await API.get('getDocumentFormContext', { token: this.token() });
+      deps = ctx.departments || []; myDept = ctx.myDept || myDept;
+    } catch (e) { }
     this.departments = deps;
-    const myDept = (this.data && this.data.department) || '';
 
     const reqOpts = DC_REQ_TYPES.map(r => `<option value="${r.v}" ${r.on ? '' : 'disabled'} ${r.v === 'NEW' ? 'selected' : ''}>${r.label}</option>`).join('');
     const typeOpts = DC_TYPES.map(t => `<option value="${t}">${DC_TYPE_LABEL[t]}</option>`).join('');
@@ -207,9 +209,9 @@ const DocumentsPage = {
           </div>
           <div class="dc-field"><label>Title <span class="dc-req">*</span></label><input class="dc-in" id="dcTitle"></div>
           <div class="dc-field"><label>Owner department <span class="dc-req">*</span></label><select class="dc-sel" id="dcDept">${deptOpts}</select></div>
-          <div class="dc-field"><label>Reason / details</label><textarea class="dc-ta" id="dcReason" placeholder="Reason for this document action"></textarea></div>
+          <div class="dc-field"><label>Reason / details <span class="dc-req">*</span></label><textarea class="dc-ta" id="dcReason" placeholder="Reason for this document action"></textarea></div>
           <div class="dc-field"><label>Distribute copies to (shared departments)</label><div class="dc-checks">${shareChecks}</div></div>
-          <div class="dc-field"><label>Attach file <span class="dc-req">*</span></label>
+          <div class="dc-field"><label>Attach file</label>
             <input type="file" id="dcFile" accept=".pdf,.doc,.docx,.xls,.xlsx" class="dc-file">
             <div class="dc-faint" style="font-size:12px;margin-top:4px">PDF, Word or Excel · max 5 MB</div>
           </div>
@@ -232,19 +234,20 @@ const DocumentsPage = {
     const err = m => { $('dcErr').innerHTML = m ? `<div class="dc-err">${dEsc(m)}</div>` : ''; };
     const docNumber = $('dcNo').value.trim(), revision = $('dcRev').value.trim();
     const title = $('dcTitle').value.trim(), type = $('dcType').value, deptId = $('dcDept').value;
+    const reason = $('dcReason').value.trim();
     const fileEl = $('dcFile');
     if (!docNumber || !revision || !title || !deptId) { err('Please fill in all required fields.'); return; }
-    if (!fileEl.files || !fileEl.files[0]) { err('Please attach a file.'); return; }
+    if (!reason) { err('Please enter a reason / details.'); return; }
     const shared = Array.from(document.querySelectorAll('.dcShare:checked')).map(x => x.value);
 
-    const btn = $('dcSave'); btn.disabled = true; btn.textContent = 'Uploading…';
+    const btn = $('dcSave'); btn.disabled = true; btn.textContent = (fileEl.files && fileEl.files[0]) ? 'Uploading…' : 'Creating…';
     try {
-      const file = await this.readFile(fileEl.files[0]);
-      const res = await API.post('createDocument', {
+      const payload = {
         token: this.token(), requestType: 'NEW', DocumentType: type, DocNumber: docNumber,
-        Revision: revision, Title: title, DepartmentID: deptId, reason: $('dcReason').value.trim(),
-        sharedDepartments: shared, file: file
-      });
+        Revision: revision, Title: title, DepartmentID: deptId, reason: reason, sharedDepartments: shared
+      };
+      if (fileEl.files && fileEl.files[0]) payload.file = await this.readFile(fileEl.files[0]);
+      const res = await API.post('createDocument', payload);
       this.toast('Document created');
       this.openDetail(res.documentId);
     } catch (ex) {
