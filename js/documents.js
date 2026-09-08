@@ -117,6 +117,9 @@ const DocumentsPage = {
       .dc-toast.show{opacity:1}
       .dc-file{font-size:13px;border:1px dashed #cbd5e1;border-radius:8px;padding:10px;background:#fafbfc}
       .dc-warn{margin-top:10px;background:#fff4e5;border:1px solid #fde3b8;color:#9a6400;font-size:13px;border-radius:8px;padding:9px 12px}
+      .dc-actbar{display:flex;flex-wrap:wrap;gap:9px}
+      .dc-scrim{position:fixed;inset:0;background:rgba(15,20,30,.45);display:flex;align-items:center;justify-content:center;z-index:70;padding:16px}
+      .dc-modal{background:#fff;border-radius:12px;padding:22px;width:100%;max-width:440px;box-shadow:0 12px 40px rgba(0,0,0,.25)}
     `;
     document.head.appendChild(s);
   },
@@ -292,6 +295,8 @@ const DocumentsPage = {
         API.get('listAcknowledgements', { token: this.token(), documentId })
       ]);
       await this.ensureDepts();
+      this._actions = docR.actions || [];
+      this._ackDepts = docR.ackDepts || [];
       this.renderDetail(docR.document, histR.history || [], ackR);
     } catch (err) {
       c.innerHTML = `<div class="dc-wrap"><button class="dc-back" id="dcBack2">← Back</button><div class="dc-card"><div class="dc-err">${dEsc(err.message || 'Not found')}</div></div></div>`;
@@ -342,6 +347,8 @@ const DocumentsPage = {
           </div>
         </div>
 
+        ${this.renderActions(doc)}
+
         ${((ack.acknowledgements && ack.acknowledgements.length) || skippedAck.length) ? `
         <div class="dc-card">
           <div class="dc-ph" style="margin-bottom:10px"><h2 style="margin:0;font-size:15px">Acknowledgement</h2>
@@ -360,6 +367,129 @@ const DocumentsPage = {
     document.getElementById('dcBack').addEventListener('click', () => this.load());
     const dl = document.getElementById('dcDl');
     if (dl) dl.addEventListener('click', () => this.download(doc.DocumentID));
+    this.wireActions(doc);
+  },
+
+  renderActions(doc) {
+    const acts = this._actions || [];
+    const ackDepts = this._ackDepts || [];
+    const b = [];
+    const btn = (act, label, cls) => `<button class="dc-btn ${cls}" data-act="${act}" type="button">${label}</button>`;
+    if (acts.indexOf('submit') !== -1) b.push(btn('submit', 'Submit for approval', 'dc-primary'));
+    if (acts.indexOf('approve') !== -1) b.push(btn('approve', 'Approve', 'dc-primary'));
+    if (acts.indexOf('review') !== -1) b.push(btn('review', 'Review', 'dc-primary'));
+    if (acts.indexOf('forward') !== -1) b.push(btn('forward', 'Forward to publish', 'dc-primary'));
+    if (acts.indexOf('publish') !== -1) b.push(btn('publish', 'Publish (make effective)', 'dc-primary'));
+    if (acts.indexOf('reject') !== -1) b.push(btn('reject', 'Reject', 'dc-danger'));
+    if (acts.indexOf('acknowledge') !== -1) ackDepts.forEach(d =>
+      b.push(`<button class="dc-btn dc-primary" data-ack="${dEsc(d)}" type="button">Acknowledge — ${dEsc(this.deptName(d))}</button>`));
+    if (!b.length) return '';
+    return `<div class="dc-card"><h2 style="margin:0 0 12px;font-size:15px">Actions</h2><div class="dc-actbar">${b.join('')}</div><div id="dcActErr"></div></div>`;
+  },
+
+  wireActions(doc) {
+    const id = doc.DocumentID;
+    const self = this;
+    document.querySelectorAll('#pageContent [data-act]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const act = btn.dataset.act;
+        if (act === 'submit') self.doAction('submitDocument', { documentId: id }, 'Submitted for approval', btn);
+        else if (act === 'approve') self.doAction('approveDocumentStep', { documentId: id, decision: 'APPROVE' }, 'Approved', btn);
+        else if (act === 'forward') self.doAction('forwardToPublish', { documentId: id }, 'Forwarded to publishing', btn);
+        else if (act === 'review') self.reviewModal(doc);
+        else if (act === 'publish') self.confirmModal({
+          title: 'Publish document', message: 'ประกาศใช้เอกสารนี้? ฝ่ายที่เกี่ยวข้องจะได้รับแจ้งให้รับทราบ', confirmLabel: 'Publish',
+          onConfirm: (c, done) => self.runModal('approveDocumentStep', { documentId: id, decision: 'APPROVE', comment: c }, 'Published — document is now EFFECTIVE', done, id)
+        });
+        else if (act === 'reject') self.confirmModal({
+          title: 'Reject document', message: 'ตีกลับเอกสารกลับไปเป็นฉบับร่าง', requireComment: true, commentLabel: 'เหตุผลที่ตีกลับ (จำเป็น)', confirmLabel: 'Reject', danger: true,
+          onConfirm: (c, done) => self.runModal('approveDocumentStep', { documentId: id, decision: 'REJECT', comment: c }, 'Rejected — returned to DRAFT', done, id)
+        });
+      });
+    });
+    document.querySelectorAll('#pageContent [data-ack]').forEach(btn => {
+      btn.addEventListener('click', () => self.doAction('acknowledgeDocument', { documentId: id, departmentId: btn.dataset.ack }, 'Acknowledged', btn));
+    });
+  },
+
+  async doAction(endpoint, payload, successMsg, btnEl) {
+    const orig = btnEl ? btnEl.textContent : '';
+    if (btnEl) { btnEl.disabled = true; btnEl.textContent = 'กำลังบันทึก…'; }
+    try {
+      await API.post(endpoint, Object.assign({ token: this.token() }, payload));
+      this.toast(successMsg);
+      this.openDetail(payload.documentId);
+    } catch (ex) {
+      const e = document.getElementById('dcActErr');
+      if (e) e.innerHTML = `<div class="dc-err" style="margin-top:10px">${dEsc((ex && ex.message) || 'ล้มเหลว')}</div>`;
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = orig; }
+    }
+  },
+
+  // used from inside a modal: run the call, report back via done(errMsg), refresh on success
+  runModal(endpoint, payload, successMsg, done, documentId) {
+    API.post(endpoint, Object.assign({ token: this.token() }, payload))
+      .then(() => { done(); this.toast(successMsg); this.openDetail(documentId); })
+      .catch(ex => done((ex && ex.message) || 'ล้มเหลว'));
+  },
+
+  confirmModal(opts) {
+    const scrim = document.createElement('div');
+    scrim.className = 'dc-scrim';
+    scrim.innerHTML = `<div class="dc-modal">
+      <h2 style="margin:0 0 6px;font-size:16px">${dEsc(opts.title)}</h2>
+      ${opts.message ? `<p class="dc-muted" style="font-size:13px;margin:0 0 12px">${dEsc(opts.message)}</p>` : ''}
+      ${opts.requireComment ? `<label style="font-size:12.5px;font-weight:600;display:block;margin-bottom:4px">${dEsc(opts.commentLabel || 'Comment')}</label><textarea class="dc-ta" id="dcMComment"></textarea>` : ''}
+      <div id="dcMErr"></div>
+      <div style="display:flex;gap:9px;justify-content:flex-end;margin-top:16px">
+        <button class="dc-btn dc-ghost" id="dcMCancel" type="button">Cancel</button>
+        <button class="dc-btn ${opts.danger ? 'dc-danger' : 'dc-primary'}" id="dcMOk" type="button">${dEsc(opts.confirmLabel || 'Confirm')}</button>
+      </div></div>`;
+    document.body.appendChild(scrim);
+    const close = () => scrim.remove();
+    scrim.querySelector('#dcMCancel').addEventListener('click', close);
+    scrim.addEventListener('click', e => { if (e.target === scrim) close(); });
+    scrim.querySelector('#dcMOk').addEventListener('click', () => {
+      const c = opts.requireComment ? scrim.querySelector('#dcMComment').value.trim() : '';
+      if (opts.requireComment && !c) { scrim.querySelector('#dcMErr').innerHTML = '<div class="dc-err" style="margin-top:8px">กรุณาระบุเหตุผล</div>'; return; }
+      const ok = scrim.querySelector('#dcMOk'); ok.disabled = true; ok.textContent = 'กำลังบันทึก…';
+      opts.onConfirm(c, (errMsg) => {
+        if (errMsg) { scrim.querySelector('#dcMErr').innerHTML = `<div class="dc-err" style="margin-top:8px">${dEsc(errMsg)}</div>`; ok.disabled = false; ok.textContent = opts.confirmLabel || 'Confirm'; }
+        else close();
+      });
+    });
+  },
+
+  reviewModal(doc) {
+    const current = String(doc.SharedDepartments || '').split(',').map(x => x.trim()).filter(Boolean);
+    const owner = String(doc.DepartmentID).trim();
+    const checks = (this.departments.length ? this.departments : Object.keys(this.deptMap).map(id => ({ departmentId: id, name: this.deptMap[id] })))
+      .filter(d => d.departmentId !== owner)
+      .map(d => `<label class="dc-chk"><input type="checkbox" class="dcRShare" value="${dEsc(d.departmentId)}" ${current.indexOf(d.departmentId) !== -1 ? 'checked' : ''}> ${dEsc(d.name)} (${dEsc(d.departmentId)})</label>`).join('');
+    const scrim = document.createElement('div');
+    scrim.className = 'dc-scrim';
+    scrim.innerHTML = `<div class="dc-modal" style="max-width:520px">
+      <h2 style="margin:0 0 6px;font-size:16px">Review document</h2>
+      <p class="dc-muted" style="font-size:13px;margin:0 0 12px">ตรวจแล้วปรับฝ่ายที่ต้องแชร์ (ถ้าจำเป็น) แล้วยืนยันเพื่อส่งเข้าสู่ขั้นรอประกาศใช้</p>
+      <label style="font-size:12.5px;font-weight:600;display:block;margin-bottom:6px">Distribute copies to</label>
+      <div class="dc-checks">${checks}</div>
+      <div id="dcMErr"></div>
+      <div style="display:flex;gap:9px;justify-content:flex-end;margin-top:16px">
+        <button class="dc-btn dc-ghost" id="dcMCancel" type="button">Cancel</button>
+        <button class="dc-btn dc-primary" id="dcMOk" type="button">Confirm review</button>
+      </div></div>`;
+    document.body.appendChild(scrim);
+    const close = () => scrim.remove();
+    const self = this;
+    scrim.querySelector('#dcMCancel').addEventListener('click', close);
+    scrim.addEventListener('click', e => { if (e.target === scrim) close(); });
+    scrim.querySelector('#dcMOk').addEventListener('click', () => {
+      const shared = Array.from(scrim.querySelectorAll('.dcRShare:checked')).map(x => x.value);
+      const ok = scrim.querySelector('#dcMOk'); ok.disabled = true; ok.textContent = 'กำลังบันทึก…';
+      API.post('reviewDocument', { token: self.token(), documentId: doc.DocumentID, sharedDepartments: shared })
+        .then(() => { close(); self.toast('Reviewed'); self.openDetail(doc.DocumentID); })
+        .catch(ex => { scrim.querySelector('#dcMErr').innerHTML = `<div class="dc-err" style="margin-top:8px">${dEsc((ex && ex.message) || 'ล้มเหลว')}</div>`; ok.disabled = false; ok.textContent = 'Confirm review'; });
+    });
   },
 
   async download(documentId) {
