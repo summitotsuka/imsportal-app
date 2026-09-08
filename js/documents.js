@@ -22,7 +22,8 @@ const DC_REQ_TYPES = [
 const DC_STATUS = {
   DRAFT: ['Waiting for Submit', 'dc-b-off'], SUBMITTED: ['Waiting for Dept Approve', 'dc-b-info'],
   DEPT_APPROVED: ['Waiting for QMS Review', 'dc-b-info'], UNDER_REVIEW: ['Waiting for QMS Forward', 'dc-b-warn'],
-  PENDING_PUBLISH: ['Waiting for QMS Manager Approve', 'dc-b-warn'], EFFECTIVE: ['Published', 'dc-b-ok']
+  PENDING_PUBLISH: ['Waiting for QMS Manager Approve', 'dc-b-warn'], EFFECTIVE: ['Published', 'dc-b-ok'],
+  CANCELLED: ['Cancelled', 'dc-b-cancel']
 };
 const DC_TABS = [
   ['myDocuments', 'My Documents'], ['drafts', 'Drafts'],
@@ -94,6 +95,7 @@ const DocumentsPage = {
       .dc-badge{font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px;white-space:nowrap}
       .dc-b-ok{background:#e7f6ec;color:#15803d}.dc-b-off{background:#f0f1f3;color:#6b7280}
       .dc-b-info{background:#e8f0fe;color:#1d4ed8}.dc-b-warn{background:#fff4e5;color:#9a6400}
+      .dc-b-cancel{background:#fde8e8;color:#b91c1c}
       .dc-field{margin-bottom:13px}
       .dc-field label{display:block;font-size:12.5px;font-weight:600;color:#374151;margin-bottom:4px}
       .dc-req{color:#dc2626}
@@ -332,7 +334,7 @@ const DocumentsPage = {
     if (rm) rm.addEventListener('click', () => {
       this.confirmModal({
         title: 'Remove file', message: 'ลบไฟล์แนบออกจากเอกสาร (ลบจาก Drive ด้วย)?', confirmLabel: 'Remove', danger: true,
-        onConfirm: (c2, done) => API.post('removeDocumentFile', { token: this.token(), documentId: doc.DocumentID })
+        onConfirm: (v, done) => API.post('removeDocumentFile', { token: this.token(), documentId: doc.DocumentID })
           .then(() => { done(); this.toast('ลบไฟล์แล้ว'); this.reopenEdit(doc.DocumentID); })
           .catch(ex => done((ex && ex.message) || 'ล้มเหลว'))
       });
@@ -468,6 +470,7 @@ const DocumentsPage = {
     if (acts.indexOf('forward') !== -1) b.push(btn('forward', 'Forward to publish', 'dc-primary'));
     if (acts.indexOf('publish') !== -1) b.push(btn('publish', 'Publish (make effective)', 'dc-primary'));
     if (acts.indexOf('reject') !== -1) b.push(btn('reject', 'Reject', 'dc-danger'));
+    if (acts.indexOf('cancel') !== -1) b.push(btn('cancel', 'Cancel document', 'dc-danger'));
     if (acts.indexOf('acknowledge') !== -1) ackDepts.forEach(d =>
       b.push(`<button class="dc-btn dc-primary" data-ack="${dEsc(d)}" type="button">Acknowledge — ${dEsc(this.deptName(d))}</button>`));
     if (!b.length) return '';
@@ -487,11 +490,15 @@ const DocumentsPage = {
         else if (act === 'review') self.reviewModal(doc);
         else if (act === 'publish') self.confirmModal({
           title: 'Publish document', message: 'ประกาศใช้เอกสารนี้? ฝ่ายที่เกี่ยวข้องจะได้รับแจ้งให้รับทราบ', confirmLabel: 'Publish',
-          onConfirm: (c, done) => self.runModal('approveDocumentStep', { documentId: id, decision: 'APPROVE', comment: c }, 'Published — document is now EFFECTIVE', done, id)
+          onConfirm: (v, done) => self.runModal('approveDocumentStep', { documentId: id, decision: 'APPROVE', comment: v.comment }, 'Published — document is now EFFECTIVE', done, id)
         });
         else if (act === 'reject') self.confirmModal({
-          title: 'Reject document', message: 'ตีกลับเอกสารกลับไปเป็นฉบับร่าง', requireComment: true, commentLabel: 'เหตุผลที่ตีกลับ (จำเป็น)', confirmLabel: 'Reject', danger: true,
-          onConfirm: (c, done) => self.runModal('approveDocumentStep', { documentId: id, decision: 'REJECT', comment: c }, 'Rejected — returned to DRAFT', done, id)
+          title: 'Reject document', message: 'ตีกลับเอกสารไปขั้นก่อนหน้าเพื่อแก้ไข', requireComment: true, commentLabel: 'เหตุผลที่ตีกลับ (จำเป็น)', confirmLabel: 'Reject', danger: true,
+          onConfirm: (v, done) => self.runModal('approveDocumentStep', { documentId: id, decision: 'REJECT', comment: v.comment }, 'Rejected — sent back for edit', done, id)
+        });
+        else if (act === 'cancel') self.confirmModal({
+          title: 'Cancel document', message: 'ยกเลิกเอกสารถาวร — จะทำอะไรต่อไม่ได้อีก', requireComment: true, commentLabel: 'เหตุผลที่ยกเลิก (จำเป็น)', requireMaster: true, confirmLabel: 'Cancel document', danger: true,
+          onConfirm: (v, done) => self.runModal('cancelDocument', { documentId: id, comment: v.comment, masterPassword: v.master }, 'ยกเลิกเอกสารแล้ว', done, id)
         });
       });
     });
@@ -528,6 +535,7 @@ const DocumentsPage = {
       <h2 style="margin:0 0 6px;font-size:16px">${dEsc(opts.title)}</h2>
       ${opts.message ? `<p class="dc-muted" style="font-size:13px;margin:0 0 12px">${dEsc(opts.message)}</p>` : ''}
       ${opts.requireComment ? `<label style="font-size:12.5px;font-weight:600;display:block;margin-bottom:4px">${dEsc(opts.commentLabel || 'Comment')}</label><textarea class="dc-ta" id="dcMComment"></textarea>` : ''}
+      ${opts.requireMaster ? `<label style="font-size:12.5px;font-weight:600;display:block;margin:10px 0 4px">Master password</label><input class="dc-in" id="dcMMaster" type="password" autocomplete="off">` : ''}
       <div id="dcMErr"></div>
       <div style="display:flex;gap:9px;justify-content:flex-end;margin-top:16px">
         <button class="dc-btn dc-ghost" id="dcMCancel" type="button">Cancel</button>
@@ -539,9 +547,11 @@ const DocumentsPage = {
     scrim.addEventListener('click', e => { if (e.target === scrim) close(); });
     scrim.querySelector('#dcMOk').addEventListener('click', () => {
       const c = opts.requireComment ? scrim.querySelector('#dcMComment').value.trim() : '';
+      const m = opts.requireMaster ? scrim.querySelector('#dcMMaster').value : '';
       if (opts.requireComment && !c) { scrim.querySelector('#dcMErr').innerHTML = '<div class="dc-err" style="margin-top:8px">กรุณาระบุเหตุผล</div>'; return; }
+      if (opts.requireMaster && !m) { scrim.querySelector('#dcMErr').innerHTML = '<div class="dc-err" style="margin-top:8px">กรุณากรอก master password</div>'; return; }
       const ok = scrim.querySelector('#dcMOk'); ok.disabled = true; ok.textContent = 'กำลังบันทึก…';
-      opts.onConfirm(c, (errMsg) => {
+      opts.onConfirm({ comment: c, master: m }, (errMsg) => {
         if (errMsg) { scrim.querySelector('#dcMErr').innerHTML = `<div class="dc-err" style="margin-top:8px">${dEsc(errMsg)}</div>`; ok.disabled = false; ok.textContent = opts.confirmLabel || 'Confirm'; }
         else close();
       });
