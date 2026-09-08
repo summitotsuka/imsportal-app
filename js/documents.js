@@ -49,8 +49,21 @@ const DocumentsPage = {
   _tab: 'myDocuments',
   data: null,
   departments: [],
+  deptMap: {},
 
   token() { return AUTH.getToken(); },
+
+  async ensureDepts() {
+    if (Object.keys(this.deptMap).length) return;
+    try {
+      const ctx = await API.get('getDocumentFormContext', { token: this.token() });
+      (ctx.departments || []).forEach(d => { this.deptMap[d.departmentId] = d.name; });
+    } catch (e) { }
+  },
+  deptName(id) { return this.deptMap[String(id).trim()] || id; },
+  deptNames(csv) {
+    return String(csv || '').split(',').map(x => x.trim()).filter(Boolean).map(id => this.deptName(id)).join(', ');
+  },
 
   injectCss() {
     if (this._css) return;
@@ -116,6 +129,7 @@ const DocumentsPage = {
     try {
       const r = await API.get('getDocumentInbox', { token: this.token() });
       this.data = r;
+      await this.ensureDepts();
       this.render();
     } catch (err) {
       c.innerHTML = `<div class="dc-wrap"><div class="dc-card"><div class="dc-err">${dEsc(err.message || 'Failed to load')}</div></div></div>`;
@@ -152,7 +166,7 @@ const DocumentsPage = {
     if (this._tab === 'acknowledge') {
       box.innerHTML = `<table class="dc-tbl"><thead><tr><th>Document</th><th>Rev</th><th>Department</th></tr></thead><tbody>${items.map(a => `
         <tr class="dc-row" data-doc="${dEsc(a.DocumentID)}">
-          <td><span class="dc-id">${dEsc(a.DocNumber)}</span></td><td>${dEsc(a.Revision)}</td><td>${dEsc(a.DepartmentID)}</td>
+          <td><span class="dc-id">${dEsc(a.DocNumber)}</span></td><td>${dEsc(a.Revision)}</td><td>${dEsc(this.deptName(a.DepartmentID))}</td>
         </tr>`).join('')}</tbody></table>`;
     } else if (this._tab === 'myDocuments') {
       // group by type
@@ -172,7 +186,7 @@ const DocumentsPage = {
     return `<tr class="dc-row" data-doc="${dEsc(d.DocumentID)}">
       <td><span class="dc-id">${dEsc(d.DocNumber)}</span> <span class="dc-faint">RV${dEsc(d.Revision)}</span></td>
       <td>${dEsc(d.Title)}</td>
-      <td>${dEsc(d.DepartmentID)}</td>
+      <td>${dEsc(this.deptName(d.DepartmentID))}</td>
       <td>${dcBadge(d.Status)}</td>
     </tr>`;
   },
@@ -276,6 +290,7 @@ const DocumentsPage = {
         API.get('getDocumentHistory', { token: this.token(), documentId }),
         API.get('listAcknowledgements', { token: this.token(), documentId })
       ]);
+      await this.ensureDepts();
       this.renderDetail(docR.document, histR.history || [], ackR);
     } catch (err) {
       c.innerHTML = `<div class="dc-wrap"><button class="dc-back" id="dcBack2">← Back</button><div class="dc-card"><div class="dc-err">${dEsc(err.message || 'Not found')}</div></div></div>`;
@@ -285,9 +300,10 @@ const DocumentsPage = {
 
   renderDetail(doc, history, ack) {
     const c = document.getElementById('pageContent');
-    const shared = String(doc.SharedDepartments || '').split(',').map(x => x.trim()).filter(Boolean);
+    const sharedIds = String(doc.SharedDepartments || '').split(',').map(x => x.trim()).filter(Boolean);
+    const sharedNames = sharedIds.map(id => this.deptName(id));
     const ackRows = (ack.acknowledgements || []).map(a => `
-      <tr><td>${dEsc(a.DepartmentID)}</td>
+      <tr><td>${dEsc(this.deptName(a.DepartmentID))}</td>
         <td>${String(a.Status).toUpperCase() === 'ACKNOWLEDGED' ? '<span class="dc-badge dc-b-ok">Acknowledged</span>' : '<span class="dc-badge dc-b-off">Pending</span>'}</td>
         <td>${dEsc(a.AcknowledgedByName || '—')}</td><td>${a.AcknowledgedDate ? dcDate(a.AcknowledgedDate) : '—'}</td></tr>`).join('');
     const tl = history.map(h => `
@@ -310,9 +326,9 @@ const DocumentsPage = {
           </div>
           <hr style="border:0;border-top:1px solid #eef0f3;margin:14px 0">
           <div class="dc-kv">
-            <div class="k">Owner department</div><div>${dEsc(doc.DepartmentID)}</div>
+            <div class="k">Owner department</div><div>${dEsc(this.deptName(doc.DepartmentID))}</div>
             <div class="k">Request type</div><div>${dEsc(doc.RequestType || 'NEW')}</div>
-            <div class="k">Shared with</div><div>${shared.length ? shared.map(dEsc).join(', ') : '—'}</div>
+            <div class="k">Shared with</div><div>${sharedNames.length ? sharedNames.map(dEsc).join(', ') : '—'}</div>
             <div class="k">Reason</div><div>${dEsc(doc.Reason || '—')}</div>
             <div class="k">Created</div><div>${dEsc(doc.CreatedByName || '')} · ${dcDate(doc.CreatedDate)}</div>
             ${doc.DeptApprovedByName ? `<div class="k">Dept approved</div><div>${dEsc(doc.DeptApprovedByName)} · ${dcDate(doc.DeptApprovedDate)}</div>` : ''}
