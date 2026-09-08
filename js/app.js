@@ -327,6 +327,13 @@ function navigateTo(page) {
       break;
 
 
+    case 'documents':
+
+      loadDocuments();
+
+      break;
+
+
     default:
 
       loadComingSoon(page);
