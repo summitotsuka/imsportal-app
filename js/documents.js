@@ -145,7 +145,15 @@ const DocumentsPage = {
   render() {
     const c = document.getElementById('pageContent');
     const counts = (this.data && this.data.counts) || {};
-    const tabs = DC_TABS.map(([id, label]) =>
+    const role = (function () { try { return String((AUTH.getUser() || {}).roleId || ''); } catch (e) { return ''; } })();
+    const tabAllowed = (id) => {
+      if (id === 'forApproval') return ['R001', 'R002', 'R006', 'R007'].indexOf(role) !== -1;
+      if (id === 'qmsReview') return ['R001', 'R003'].indexOf(role) !== -1;
+      return true;
+    };
+    const allowed = DC_TABS.filter(([id]) => tabAllowed(id));
+    if (!allowed.some(([id]) => id === this._tab)) this._tab = 'myDocuments';
+    const tabs = allowed.map(([id, label]) =>
       `<button class="dc-tab${this._tab === id ? ' on' : ''}" data-tab="${id}">${label}<span class="dc-count">${counts[id] || 0}</span></button>`).join('');
     c.innerHTML = `
       <div class="dc-wrap">
@@ -492,10 +500,17 @@ const DocumentsPage = {
           title: 'Publish document', message: 'ประกาศใช้เอกสารนี้? ฝ่ายที่เกี่ยวข้องจะได้รับแจ้งให้รับทราบ', confirmLabel: 'Publish',
           onConfirm: (v, done) => self.runModal('approveDocumentStep', { documentId: id, decision: 'APPROVE', comment: v.comment }, 'Published — document is now EFFECTIVE', done, id)
         });
-        else if (act === 'reject') self.confirmModal({
-          title: 'Reject document', message: 'ตีกลับเอกสารไปขั้นก่อนหน้าเพื่อแก้ไข', requireComment: true, commentLabel: 'เหตุผลที่ตีกลับ (จำเป็น)', confirmLabel: 'Reject', danger: true,
-          onConfirm: (v, done) => self.runModal('approveDocumentStep', { documentId: id, decision: 'REJECT', comment: v.comment }, 'Rejected — sent back for edit', done, id)
-        });
+        else if (act === 'reject') {
+          const rst = String(doc.Status).toUpperCase();
+          const viaReview = (rst === 'DEPT_APPROVED' || rst === 'UNDER_REVIEW');
+          self.confirmModal({
+            title: 'Reject document', message: viaReview ? 'ตีกลับให้ฝ่ายแก้ไข (กลับเป็นฉบับร่าง)' : 'ตีกลับเอกสารไปขั้นก่อนหน้าเพื่อแก้ไข',
+            requireComment: true, commentLabel: 'เหตุผลที่ตีกลับ (จำเป็น)', confirmLabel: 'Reject', danger: true,
+            onConfirm: (v, done) => viaReview
+              ? self.runModal('rejectReview', { documentId: id, comment: v.comment }, 'ตีกลับให้แก้ไขแล้ว', done, id)
+              : self.runModal('approveDocumentStep', { documentId: id, decision: 'REJECT', comment: v.comment }, 'Rejected — sent back for edit', done, id)
+          });
+        }
         else if (act === 'cancel') self.confirmModal({
           title: 'Cancel document', message: 'ยกเลิกเอกสารถาวร — จะทำอะไรต่อไม่ได้อีก', requireComment: true, commentLabel: 'เหตุผลที่ยกเลิก (จำเป็น)', requireMaster: true, confirmLabel: 'Cancel document', danger: true,
           onConfirm: (v, done) => self.runModal('cancelDocument', { documentId: id, comment: v.comment, masterPassword: v.master }, 'ยกเลิกเอกสารแล้ว', done, id)
