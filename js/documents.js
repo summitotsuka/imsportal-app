@@ -20,9 +20,9 @@ const DC_REQ_TYPES = [
   { v: 'OTHER', label: 'Other (soon)', on: false }
 ];
 const DC_STATUS = {
-  DRAFT: ['Draft', 'dc-b-off'], SUBMITTED: ['Submitted', 'dc-b-info'],
-  DEPT_APPROVED: ['Dept approved', 'dc-b-info'], UNDER_REVIEW: ['QMS review', 'dc-b-warn'],
-  PENDING_PUBLISH: ['Pending publish', 'dc-b-warn'], EFFECTIVE: ['Effective', 'dc-b-ok']
+  DRAFT: ['Waiting for Submit', 'dc-b-off'], SUBMITTED: ['Waiting for Dept Approve', 'dc-b-info'],
+  DEPT_APPROVED: ['Waiting for QMS Review', 'dc-b-info'], UNDER_REVIEW: ['Waiting for QMS Forward', 'dc-b-warn'],
+  PENDING_PUBLISH: ['Waiting for QMS Manager Approve', 'dc-b-warn'], EFFECTIVE: ['Published', 'dc-b-ok']
 };
 const DC_TABS = [
   ['myDocuments', 'My Documents'], ['drafts', 'Drafts'],
@@ -282,6 +282,92 @@ const DocumentsPage = {
     });
   },
 
+  /* ---------------- Edit (all fields + file) ---------------- */
+  async openEdit(doc) {
+    this.injectCss();
+    const c = document.getElementById('pageContent');
+    c.innerHTML = `<div class="dc-wrap"><button class="dc-back" id="dcBack">← Back</button><div class="dc-card"><p class="dc-muted">Loading…</p></div></div>`;
+    document.getElementById('dcBack').addEventListener('click', () => this.openDetail(doc.DocumentID));
+    let deps = [];
+    try { deps = (await API.get('getDocumentFormContext', { token: this.token() })).departments || []; } catch (e) { }
+    this.departments = deps;
+    const cur = String(doc.SharedDepartments || '').split(',').map(x => x.trim()).filter(Boolean);
+    const typeOpts = DC_TYPES.map(t => `<option value="${t}" ${t === String(doc.DocumentType).toUpperCase() ? 'selected' : ''}>${DC_TYPE_LABEL[t]}</option>`).join('');
+    const deptOpts = deps.map(d => `<option value="${dEsc(d.departmentId)}" ${d.departmentId === doc.DepartmentID ? 'selected' : ''}>${dEsc(d.name)} (${dEsc(d.departmentId)})</option>`).join('');
+    const shareChecks = deps.map(d => `<label class="dc-chk"><input type="checkbox" class="dcShare" value="${dEsc(d.departmentId)}" ${cur.indexOf(d.departmentId) !== -1 ? 'checked' : ''}> ${dEsc(d.name)} (${dEsc(d.departmentId)})</label>`).join('');
+    const hasFile = doc.FileID && String(doc.FileID).indexOf('MOCK_') !== 0;
+
+    c.innerHTML = `
+      <div class="dc-wrap">
+        <button class="dc-back" id="dcBack">← Back</button>
+        <div class="dc-ph" style="margin-bottom:14px"><h1 style="margin:0">Edit Document</h1></div>
+        <div class="dc-card">
+          <div class="dc-2col">
+            <div class="dc-field"><label>Document type <span class="dc-req">*</span></label><select class="dc-sel" id="dcType">${typeOpts}</select></div>
+            <div class="dc-field"><label>Owner department <span class="dc-req">*</span></label><select class="dc-sel" id="dcDept">${deptOpts}</select></div>
+          </div>
+          <div class="dc-2col">
+            <div class="dc-field"><label>Document number <span class="dc-req">*</span></label><input class="dc-in" id="dcNo" value="${dEsc(doc.DocNumber)}"></div>
+            <div class="dc-field"><label>Revision <span class="dc-req">*</span></label><input class="dc-in" id="dcRev" value="${dEsc(doc.Revision)}"></div>
+          </div>
+          <div class="dc-field"><label>Title <span class="dc-req">*</span></label><input class="dc-in" id="dcTitle" value="${dEsc(doc.Title)}"></div>
+          <div class="dc-field"><label>Reason / details <span class="dc-req">*</span></label><textarea class="dc-ta" id="dcReason">${dEsc(doc.Reason || '')}</textarea></div>
+          <div class="dc-field"><label>Distribute copies to (shared departments)</label><div class="dc-checks">${shareChecks}</div></div>
+          <div class="dc-field"><label>File</label>
+            <div class="dc-file" id="dcFileRow">${hasFile ? `ไฟล์ปัจจุบัน: <b>${dEsc(doc.FileName)}</b> <button class="dc-btn dc-danger" id="dcRemoveFile" type="button" style="margin-left:8px;padding:4px 10px">Remove</button>` : '<span class="dc-faint">ยังไม่มีไฟล์แนบ</span>'}</div>
+            <input type="file" id="dcFile" accept=".pdf,.doc,.docx,.xls,.xlsx" class="dc-file" style="margin-top:8px">
+            <div class="dc-faint" style="font-size:12px;margin-top:4px">${hasFile ? 'เลือกไฟล์ใหม่เพื่อแทนที่ (ไฟล์เก่าจะถูกลบจาก Drive)' : 'เลือกไฟล์เพื่อแนบ'} · PDF/Word/Excel · max 5 MB</div>
+          </div>
+          <div id="dcErr"></div>
+          <div class="dc-bar">
+            <button class="dc-btn dc-ghost" id="dcCancel" type="button">Cancel</button>
+            <button class="dc-btn dc-primary" id="dcSave" type="button">Save changes</button>
+          </div>
+        </div>
+      </div>`;
+    document.getElementById('dcBack').addEventListener('click', () => this.openDetail(doc.DocumentID));
+    document.getElementById('dcCancel').addEventListener('click', () => this.openDetail(doc.DocumentID));
+    document.getElementById('dcSave').addEventListener('click', () => this.submitEdit(doc));
+    const rm = document.getElementById('dcRemoveFile');
+    if (rm) rm.addEventListener('click', () => {
+      this.confirmModal({
+        title: 'Remove file', message: 'ลบไฟล์แนบออกจากเอกสาร (ลบจาก Drive ด้วย)?', confirmLabel: 'Remove', danger: true,
+        onConfirm: (c2, done) => API.post('removeDocumentFile', { token: this.token(), documentId: doc.DocumentID })
+          .then(() => { done(); this.toast('ลบไฟล์แล้ว'); this.reopenEdit(doc.DocumentID); })
+          .catch(ex => done((ex && ex.message) || 'ล้มเหลว'))
+      });
+    });
+  },
+
+  async reopenEdit(documentId) {
+    const r = await API.get('getDocument', { token: this.token(), documentId });
+    this.openEdit(r.document);
+  },
+
+  async submitEdit(doc) {
+    const $ = id => document.getElementById(id);
+    const err = m => { $('dcErr').innerHTML = m ? `<div class="dc-err">${dEsc(m)}</div>` : ''; };
+    const v = {
+      documentId: doc.DocumentID, DocNumber: $('dcNo').value.trim(), Revision: $('dcRev').value.trim(),
+      Title: $('dcTitle').value.trim(), DocumentType: $('dcType').value, DepartmentID: $('dcDept').value,
+      reason: $('dcReason').value.trim(),
+      sharedDepartments: Array.from(document.querySelectorAll('.dcShare:checked')).map(x => x.value)
+    };
+    if (!v.DocNumber || !v.Revision || !v.Title || !v.DepartmentID) { err('กรุณากรอกช่องที่จำเป็น'); return; }
+    if (!v.reason) { err('กรุณาระบุเหตุผล / รายละเอียด'); return; }
+    const fileEl = $('dcFile');
+    const btn = $('dcSave'); btn.disabled = true; btn.textContent = 'กำลังบันทึก…';
+    try {
+      await API.post('updateDocumentMeta', Object.assign({ token: this.token() }, v));
+      if (fileEl.files && fileEl.files[0]) {
+        const file = await this.readFile(fileEl.files[0]);
+        await API.post('replaceDocumentFile', { token: this.token(), documentId: doc.DocumentID, file: file });
+      }
+      this.toast('บันทึกแล้ว');
+      this.openDetail(doc.DocumentID);
+    } catch (ex) { err((ex && ex.message) || 'บันทึกไม่สำเร็จ'); btn.disabled = false; btn.textContent = 'Save changes'; }
+  },
+
   /* ---------------- Detail ---------------- */
   async openDetail(documentId) {
     this.injectCss();
@@ -375,6 +461,7 @@ const DocumentsPage = {
     const ackDepts = this._ackDepts || [];
     const b = [];
     const btn = (act, label, cls) => `<button class="dc-btn ${cls}" data-act="${act}" type="button">${label}</button>`;
+    if (acts.indexOf('edit') !== -1) b.push(btn('edit', 'Edit', 'dc-ghost'));
     if (acts.indexOf('submit') !== -1) b.push(btn('submit', 'Submit for approval', 'dc-primary'));
     if (acts.indexOf('approve') !== -1) b.push(btn('approve', 'Approve', 'dc-primary'));
     if (acts.indexOf('review') !== -1) b.push(btn('review', 'Review', 'dc-primary'));
@@ -393,7 +480,8 @@ const DocumentsPage = {
     document.querySelectorAll('#pageContent [data-act]').forEach(btn => {
       btn.addEventListener('click', () => {
         const act = btn.dataset.act;
-        if (act === 'submit') self.doAction('submitDocument', { documentId: id }, 'Submitted for approval', btn);
+        if (act === 'edit') self.openEdit(doc);
+        else if (act === 'submit') self.doAction('submitDocument', { documentId: id }, 'Submitted for approval', btn);
         else if (act === 'approve') self.doAction('approveDocumentStep', { documentId: id, decision: 'APPROVE' }, 'Approved', btn);
         else if (act === 'forward') self.doAction('forwardToPublish', { documentId: id }, 'Forwarded to publishing', btn);
         else if (act === 'review') self.reviewModal(doc);
