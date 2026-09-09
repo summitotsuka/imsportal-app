@@ -457,6 +457,9 @@ const DocumentsPage = {
             <div class="k">Created</div><div>${dEsc(doc.CreatedByName || '')} · ${dcDate(doc.CreatedDate)}</div>
             ${doc.DeptApprovedByName ? `<div class="k">Dept approved</div><div>${dEsc(doc.DeptApprovedByName)} · ${dcDate(doc.DeptApprovedDate)}</div>` : ''}
             ${doc.ReviewedByName ? `<div class="k">QMS reviewed</div><div>${dEsc(doc.ReviewedByName)} · ${dcDate(doc.ReviewedDate)}</div>` : ''}
+            ${doc.DarNo ? `<div class="k">DAR No.</div><div><b>${dEsc(doc.DarNo)}</b></div>` : ''}
+            ${doc.FourMChange ? `<div class="k">4M Change</div><div>${doc.FourMChange === 'RELATED' ? 'เกี่ยวข้องกับ 4M Change' : 'ไม่เกี่ยวข้องกับ 4M Change'}</div>` : ''}
+            ${doc.ReviewComment ? `<div class="k">ข้อคิดเห็น QMS</div><div>${dEsc(doc.ReviewComment)}</div>` : ''}
             ${doc.PublishedByName ? `<div class="k">Published</div><div>${dEsc(doc.PublishedByName)} · ${dcDate(doc.PublishedDate || doc.EffectiveDate)}</div>` : ''}
           </div>
           ${(doc.FileID && String(doc.FileID).indexOf('MOCK_') !== 0) ? `<div class="dc-filebar"><span class="dc-file-name">📄 ${dEsc(doc.FileName)}</span><button class="dc-btn dc-ghost" id="dcView" type="button">View</button><button class="dc-btn" id="dcDl" type="button">Download</button></div>` : ''}
@@ -607,6 +610,13 @@ const DocumentsPage = {
       <p class="dc-muted" style="font-size:13px;margin:0 0 12px">ตรวจสอบแล้วปรับฝ่ายที่ต้องแชร์ (ถ้าจำเป็น) แล้วยืนยันเพื่อส่งให้ QMS Manager ประกาศใช้</p>
       <label style="font-size:12.5px;font-weight:600;display:block;margin-bottom:6px">Distribute copies to</label>
       <div class="dc-checks">${checks}</div>
+      <div style="margin-top:14px"><label style="font-size:12.5px;font-weight:600;display:block;margin-bottom:4px">4M Change <span class="dc-req">*</span></label>
+        <div style="display:flex;flex-direction:column;gap:6px;font-size:13.5px">
+          <label style="display:flex;gap:7px;align-items:center"><input type="radio" name="dc4m" value="RELATED"> เกี่ยวข้องกับ 4M Change</label>
+          <label style="display:flex;gap:7px;align-items:center"><input type="radio" name="dc4m" value="NOT_RELATED"> ไม่เกี่ยวข้องกับ 4M Change</label>
+        </div></div>
+      <div style="margin-top:12px"><label style="font-size:12.5px;font-weight:600;display:block;margin-bottom:4px">ข้อคิดเห็น (ผู้ควบคุมเอกสาร) <span class="dc-req">*</span></label>
+        <textarea class="dc-ta" id="dcRComment"></textarea></div>
       <div id="dcMErr"></div>
       <div style="display:flex;gap:9px;justify-content:flex-end;margin-top:16px">
         <button class="dc-btn dc-ghost" id="dcMCancel" type="button">Cancel</button>
