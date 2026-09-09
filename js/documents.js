@@ -495,7 +495,7 @@ const DocumentsPage = {
     if (acts.indexOf('edit') !== -1) b.push(btn('edit', 'Edit', 'dc-ghost'));
     if (acts.indexOf('submit') !== -1) b.push(btn('submit', 'Submit for approval', 'dc-primary'));
     if (acts.indexOf('approve') !== -1) b.push(btn('approve', 'Approve', 'dc-primary'));
-    if (acts.indexOf('review') !== -1) b.push(btn('review', 'Review & send to Manager', 'dc-primary'));
+    if (acts.indexOf('review') !== -1) b.push(btn('review', 'Verify', 'dc-primary'));
     if (acts.indexOf('forward') !== -1) b.push(btn('forward', 'Forward to publish', 'dc-primary'));
     if (acts.indexOf('publish') !== -1) b.push(btn('publish', 'Publish (make effective)', 'dc-primary'));
     if (acts.indexOf('reject') !== -1) b.push(btn('reject', 'Reject', 'dc-danger'));
@@ -603,14 +603,14 @@ const DocumentsPage = {
     const scrim = document.createElement('div');
     scrim.className = 'dc-scrim';
     scrim.innerHTML = `<div class="dc-modal" style="max-width:520px">
-      <h2 style="margin:0 0 6px;font-size:16px">Review document</h2>
-      <p class="dc-muted" style="font-size:13px;margin:0 0 12px">ตรวจแล้วปรับฝ่ายที่ต้องแชร์ (ถ้าจำเป็น) แล้วยืนยันเพื่อส่งเข้าสู่ขั้นรอประกาศใช้</p>
+      <h2 style="margin:0 0 6px;font-size:16px">Verify document</h2>
+      <p class="dc-muted" style="font-size:13px;margin:0 0 12px">ตรวจสอบแล้วปรับฝ่ายที่ต้องแชร์ (ถ้าจำเป็น) แล้วยืนยันเพื่อส่งให้ QMS Manager ประกาศใช้</p>
       <label style="font-size:12.5px;font-weight:600;display:block;margin-bottom:6px">Distribute copies to</label>
       <div class="dc-checks">${checks}</div>
       <div id="dcMErr"></div>
       <div style="display:flex;gap:9px;justify-content:flex-end;margin-top:16px">
         <button class="dc-btn dc-ghost" id="dcMCancel" type="button">Cancel</button>
-        <button class="dc-btn dc-primary" id="dcMOk" type="button">Confirm review</button>
+        <button class="dc-btn dc-primary" id="dcMOk" type="button">Verify &amp; send to Manager</button>
       </div></div>`;
     document.body.appendChild(scrim);
     const close = () => scrim.remove();
