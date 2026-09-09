@@ -190,25 +190,39 @@ const DocumentsPage = {
           <td><span class="dc-id">${dEsc(a.DocNumber)}</span></td><td>${dEsc(a.Revision)}</td><td>${dEsc(this.deptName(a.DepartmentID))}</td>
         </tr>`).join('')}</tbody></table>`;
     } else if (this._tab === 'myDocuments') {
-      // group by type
       const groups = {};
       items.forEach(d => { const t = String(d.DocumentType || '').toUpperCase(); (groups[t] = groups[t] || []).push(d); });
-      box.innerHTML = DC_TYPES.filter(t => groups[t]).map(t => `
-        <div class="dc-grp">${DC_TYPE_LABEL[t] || t}</div>
-        <table class="dc-tbl"><tbody>${groups[t].map(d => this.rowHtml(d)).join('')}</tbody></table>`).join('');
+      const effTime = d => { const v = d.EffectiveDate; const t = v ? new Date(v).getTime() : 0; return isNaN(t) ? 0 : t; };
+      box.innerHTML = DC_TYPES.filter(t => groups[t]).map(t => {
+        const rows = groups[t].slice().sort((a, b) => {
+          const c = String(a.DocNumber).localeCompare(String(b.DocNumber));
+          return c !== 0 ? c : (effTime(b) - effTime(a));   // Doc No. asc, then Effective Date newest first
+        });
+        return `<div class="dc-grp">${DC_TYPE_LABEL[t] || t}</div>
+        <table class="dc-tbl"><thead><tr><th>Doc No.</th><th>Rev</th><th>Title</th><th>Dept</th><th>Status</th><th>Effective</th></tr></thead>
+        <tbody>${rows.map(d => `<tr class="dc-row" data-doc="${dEsc(d.DocumentID)}">
+          <td><span class="dc-id">${dEsc(d.DocNumber)}</span></td>
+          <td>${dEsc(d.Revision)}</td>
+          <td>${dEsc(d.Title)}</td>
+          <td>${dEsc(this.deptName(d.DepartmentID))}</td>
+          <td>${dcBadge(d.Status)}</td>
+          <td class="dc-faint" style="white-space:nowrap">${dcDate(d.EffectiveDate)}</td>
+        </tr>`).join('')}</tbody></table>`;
+      }).join('');
     } else {
-      box.innerHTML = `<table class="dc-tbl"><thead><tr><th>Doc No.</th><th>Title</th><th>Dept</th><th>Status</th></tr></thead><tbody>${items.map(d => this.rowHtml(d, true)).join('')}</tbody></table>`;
+      box.innerHTML = `<table class="dc-tbl"><thead><tr><th>Doc No.</th><th>Title</th><th>Dept</th><th>Status</th><th>Created</th></tr></thead><tbody>${items.map(d => this.rowHtml(d)).join('')}</tbody></table>`;
     }
     box.querySelectorAll('[data-doc]').forEach(r =>
       r.addEventListener('click', () => this.openDetail(r.dataset.doc)));
   },
 
-  rowHtml(d, withHead) {
+  rowHtml(d) {
     return `<tr class="dc-row" data-doc="${dEsc(d.DocumentID)}">
       <td><span class="dc-id">${dEsc(d.DocNumber)}</span> <span class="dc-faint">RV${dEsc(d.Revision)}</span></td>
       <td>${dEsc(d.Title)}</td>
       <td>${dEsc(this.deptName(d.DepartmentID))}</td>
       <td>${dcBadge(d.Status)}</td>
+      <td class="dc-faint" style="white-space:nowrap">${dcDate(d.CreatedDate)}</td>
     </tr>`;
   },
 
@@ -419,7 +433,7 @@ const DocumentsPage = {
       <tr><td>${dEsc(this.deptName(a.DepartmentID))}</td>
         <td>${String(a.Status).toUpperCase() === 'ACKNOWLEDGED' ? '<span class="dc-badge dc-b-ok">Acknowledged</span>' : '<span class="dc-badge dc-b-off">Pending</span>'}</td>
         <td>${dEsc(a.AcknowledgedByName || '—')}</td><td>${a.AcknowledgedDate ? dcDate(a.AcknowledgedDate) : '—'}</td></tr>`).join('');
-    const tl = history.map(h => `
+    const tl = history.slice().reverse().map(h => `
       <li><span class="dot"></span>
         <div class="act">${dEsc(h.Action)}${h.Comment ? ' — <span class="dc-muted" style="font-weight:400">' + dEsc(h.Comment) + '</span>' : ''}</div>
         <div class="meta">${dEsc(h.ActorEmployeeID || '')} · ${dcDate(h.Timestamp)}</div>
@@ -481,7 +495,7 @@ const DocumentsPage = {
     if (acts.indexOf('edit') !== -1) b.push(btn('edit', 'Edit', 'dc-ghost'));
     if (acts.indexOf('submit') !== -1) b.push(btn('submit', 'Submit for approval', 'dc-primary'));
     if (acts.indexOf('approve') !== -1) b.push(btn('approve', 'Approve', 'dc-primary'));
-    if (acts.indexOf('review') !== -1) b.push(btn('review', 'Review', 'dc-primary'));
+    if (acts.indexOf('review') !== -1) b.push(btn('review', 'Review & send to Manager', 'dc-primary'));
     if (acts.indexOf('forward') !== -1) b.push(btn('forward', 'Forward to publish', 'dc-primary'));
     if (acts.indexOf('publish') !== -1) b.push(btn('publish', 'Publish (make effective)', 'dc-primary'));
     if (acts.indexOf('reject') !== -1) b.push(btn('reject', 'Reject', 'dc-danger'));
