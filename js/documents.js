@@ -629,10 +629,15 @@ const DocumentsPage = {
     scrim.addEventListener('click', e => { if (e.target === scrim) close(); });
     scrim.querySelector('#dcMOk').addEventListener('click', () => {
       const shared = Array.from(scrim.querySelectorAll('.dcRShare:checked')).map(x => x.value);
+      const fourM = (scrim.querySelector('input[name="dc4m"]:checked') || {}).value || '';
+      const comment = scrim.querySelector('#dcRComment').value.trim();
+      const showErr = m => { scrim.querySelector('#dcMErr').innerHTML = `<div class="dc-err" style="margin-top:8px">${dEsc(m)}</div>`; };
+      if (!fourM) { showErr('กรุณาเลือก 4M Change'); return; }
+      if (!comment) { showErr('กรุณาใส่ข้อคิดเห็น'); return; }
       const ok = scrim.querySelector('#dcMOk'); ok.disabled = true; ok.textContent = 'กำลังบันทึก…';
-      API.post('reviewDocument', { token: self.token(), documentId: doc.DocumentID, sharedDepartments: shared })
-        .then(() => { close(); self.toast('Reviewed'); self.openDetail(doc.DocumentID); })
-        .catch(ex => { scrim.querySelector('#dcMErr').innerHTML = `<div class="dc-err" style="margin-top:8px">${dEsc((ex && ex.message) || 'ล้มเหลว')}</div>`; ok.disabled = false; ok.textContent = 'Confirm review'; });
+      API.post('reviewDocument', { token: self.token(), documentId: doc.DocumentID, sharedDepartments: shared, fourMChange: fourM, reviewComment: comment })
+        .then(() => { close(); self.toast('Verified & sent to Manager'); self.openDetail(doc.DocumentID); })
+        .catch(ex => { showErr((ex && ex.message) || 'ล้มเหลว'); ok.disabled = false; ok.textContent = 'Verify & send to Manager'; });
     });
   },
 
