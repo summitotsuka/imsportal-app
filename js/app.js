@@ -1,4 +1,5 @@
 const ROLE_LABELS = { R001: 'Administrator', R002: 'QMS Manager', R003: 'QMS Reviewer', R004: 'User', R005: 'HR', R006: 'Department Manager', R007: 'HR Manager', R008: 'HR Staff' };
+const ROLE_NAME = { R001: 'ADMIN', R002: 'QMS_MANAGER', R003: 'QMS', R004: 'USER', R005: 'HR', R006: 'DEPT_MANAGER', R007: 'HR_MANAGER', R008: 'HR_STAFF' };
 
 document.addEventListener(
   'DOMContentLoaded',
@@ -277,20 +278,25 @@ function setCurrentUser(user) {
   }
 
 
-  if (usernameElement) {
+  // line 1: EmployeeID : FullName - Department   line 2: Position (RoleName)
+  const line1 = function (empId, name, dept) {
+    return (empId ? empId + ' : ' : '') + (name || 'User') + (dept ? ' - ' + dept : '');
+  };
+  const line2 = function (position, roleId) {
+    return (position ? position + ' ' : '') + '(' + (ROLE_NAME[roleId] || roleId || '') + ')';
+  };
 
-    usernameElement.textContent =
-      user.fullName || user.username || 'User';
+  if (usernameElement) usernameElement.textContent = line1(user.employeeId, user.fullName || user.username, '');
+  if (roleElement) roleElement.textContent = line2('', user.roleId);
 
-  }
-
-
-  if (roleElement) {
-
-    roleElement.textContent =
-      ROLE_LABELS[user.roleId] || user.roleId || '';
-
-  }
+  // enrich with Department + Position from the profile
+  try {
+    API.post('getMyProfile', { token: AUTH.getToken() }).then(function (p) {
+      if (!p) return;
+      if (usernameElement) usernameElement.textContent = line1(p.employeeId || user.employeeId, p.fullName || user.fullName, p.department);
+      if (roleElement) roleElement.textContent = line2(p.position, p.roleId || user.roleId);
+    }).catch(function () { });
+  } catch (e) { }
 
 }
 

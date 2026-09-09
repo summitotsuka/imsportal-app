@@ -26,7 +26,7 @@ const DC_STATUS = {
   CANCELLED: ['Cancelled', 'dc-b-cancel']
 };
 const DC_TABS = [
-  ['myDocuments', 'My Documents'], ['drafts', 'Drafts'],
+  ['myDocuments', 'My Documents'], ['drafts', 'In Progress'],
   ['forApproval', 'For Approval'], ['qmsReview', 'QMS Review'], ['acknowledge', 'Acknowledge']
 ];
 
@@ -38,6 +38,10 @@ function dEsc(s) {
 function dcBadge(status) {
   const m = DC_STATUS[String(status || '').toUpperCase()] || [String(status || '—'), 'dc-b-off'];
   return `<span class="dc-badge ${m[1]}">${dEsc(m[0])}</span>`;
+}
+function dcBadgeBig(status) {
+  const m = DC_STATUS[String(status || '').toUpperCase()] || [String(status || '—'), 'dc-b-off'];
+  return `<span class="dc-badge dc-badge-lg ${m[1]}">${dEsc(m[0])}</span>`;
 }
 function dcDate(v) {
   if (!v) return '—';
@@ -93,6 +97,9 @@ const DocumentsPage = {
       .dc-id{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;color:#374151}
       .dc-grp{font-size:12px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.03em;padding:14px 10px 6px}
       .dc-badge{font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px;white-space:nowrap}
+      .dc-badge-lg{font-size:14px;padding:6px 16px}
+      .dc-filebar{display:flex;align-items:center;gap:10px;margin-top:14px;padding-top:14px;border-top:1px solid #eef0f3}
+      .dc-file-name{font-size:13px;color:#374151;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .dc-b-ok{background:#e7f6ec;color:#15803d}.dc-b-off{background:#f0f1f3;color:#6b7280}
       .dc-b-info{background:#e8f0fe;color:#1d4ed8}.dc-b-warn{background:#fff4e5;color:#9a6400}
       .dc-b-cancel{background:#fde8e8;color:#b91c1c}
@@ -425,10 +432,7 @@ const DocumentsPage = {
           <div class="dc-ph">
             <div><h1 style="margin:0;font-size:20px">${dEsc(doc.Title)}</h1>
               <p class="dc-muted" style="margin:4px 0 0"><span class="dc-id">${dEsc(doc.DocNumber)}</span> · RV${dEsc(doc.Revision)} · ${DC_TYPE_LABEL[String(doc.DocumentType).toUpperCase()] || dEsc(doc.DocumentType)}</p></div>
-            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
-              ${dcBadge(doc.Status)}
-              ${doc.FileID && String(doc.FileID).indexOf('MOCK_') !== 0 ? '<button class="dc-btn" id="dcDl" type="button">⬇ Download file</button>' : ''}
-            </div>
+            <div>${dcBadgeBig(doc.Status)}</div>
           </div>
           <hr style="border:0;border-top:1px solid #eef0f3;margin:14px 0">
           <div class="dc-kv">
@@ -441,6 +445,7 @@ const DocumentsPage = {
             ${doc.ReviewedByName ? `<div class="k">QMS reviewed</div><div>${dEsc(doc.ReviewedByName)} · ${dcDate(doc.ReviewedDate)}</div>` : ''}
             ${doc.PublishedByName ? `<div class="k">Published</div><div>${dEsc(doc.PublishedByName)} · ${dcDate(doc.PublishedDate || doc.EffectiveDate)}</div>` : ''}
           </div>
+          ${(doc.FileID && String(doc.FileID).indexOf('MOCK_') !== 0) ? `<div class="dc-filebar"><span class="dc-file-name">📄 ${dEsc(doc.FileName)}</span><button class="dc-btn dc-ghost" id="dcView" type="button">View</button><button class="dc-btn" id="dcDl" type="button">Download</button></div>` : ''}
         </div>
 
         ${this.renderActions(doc)}
@@ -463,6 +468,8 @@ const DocumentsPage = {
     document.getElementById('dcBack').addEventListener('click', () => this.load());
     const dl = document.getElementById('dcDl');
     if (dl) dl.addEventListener('click', () => this.download(doc.DocumentID));
+    const vw = document.getElementById('dcView');
+    if (vw) vw.addEventListener('click', () => this.view(doc.DocumentID));
     this.wireActions(doc);
   },
 
@@ -605,19 +612,32 @@ const DocumentsPage = {
     });
   },
 
+  b64ToBlob(b64, mime) {
+    const bytes = atob(b64);
+    const arr = new Uint8Array(bytes.length);
+    for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+    return new Blob([arr], { type: mime || 'application/octet-stream' });
+  },
+
   async download(documentId) {
     try {
       const r = await API.get('downloadDocumentFile', { token: this.token(), documentId });
-      const bytes = atob(r.base64);
-      const arr = new Uint8Array(bytes.length);
-      for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
-      const blob = new Blob([arr], { type: r.mimeType || 'application/octet-stream' });
-      const url = URL.createObjectURL(blob);
+      const url = URL.createObjectURL(this.b64ToBlob(r.base64, r.mimeType));
       const a = document.createElement('a');
       a.href = url; a.download = r.fileName || 'document';
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (ex) { this.toast((ex && ex.message) || 'Download failed'); }
+  },
+
+  async view(documentId) {
+    try {
+      const r = await API.get('downloadDocumentFile', { token: this.token(), documentId });
+      const url = URL.createObjectURL(this.b64ToBlob(r.base64, r.mimeType));
+      const w = window.open(url, '_blank');
+      if (!w) this.toast('เบราว์เซอร์บล็อกป๊อปอัพ — อนุญาตแล้วลองใหม่');
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (ex) { this.toast((ex && ex.message) || 'เปิดดูไม่สำเร็จ'); }
   },
 
   toast(msg) {
