@@ -258,8 +258,11 @@ const DocumentsPage = {
             <div class="dc-field"><label>Document type <span class="dc-req">*</span></label><select class="dc-sel" id="dcType">${typeOpts}</select></div>
           </div>
           <div class="dc-2col">
-            <div class="dc-field"><label>Document number <span class="dc-req">*</span></label><input class="dc-in" id="dcNo" placeholder="e.g. QP-PD-001"></div>
-            <div class="dc-field"><label>Revision <span class="dc-req">*</span></label><input class="dc-in" id="dcRev" value="00"></div>
+            <div class="dc-field"><label>Document number <span class="dc-req">*</span></label>
+              <div style="display:flex;gap:8px"><input class="dc-in" id="dcNo" placeholder="e.g. FM-HR-001" style="flex:1"><button class="dc-btn" id="dcNoGen" type="button">ขอเลขถัดไป</button></div>
+              <div class="dc-faint" id="dcNoHint" style="font-size:12px;margin-top:4px"></div>
+            </div>
+            <div class="dc-field"><label>Revision <span class="dc-req">*</span></label><input class="dc-in" id="dcRev" value="00" readonly title="เอกสารใหม่เริ่มที่ 00"></div>
           </div>
           <div class="dc-field"><label>Title <span class="dc-req">*</span></label><input class="dc-in" id="dcTitle"></div>
           <div class="dc-field"><label>Owner department <span class="dc-req">*</span></label><select class="dc-sel" id="dcDept">${deptOpts}</select></div>
@@ -281,6 +284,18 @@ const DocumentsPage = {
     document.getElementById('dcBack').addEventListener('click', back);
     document.getElementById('dcCancel').addEventListener('click', back);
     document.getElementById('dcSave').addEventListener('click', () => this.submitCreate());
+    const genBtn = document.getElementById('dcNoGen');
+    if (genBtn) genBtn.addEventListener('click', async () => {
+      const type = document.getElementById('dcType').value;
+      const dept = document.getElementById('dcDept').value;
+      genBtn.disabled = true; genBtn.textContent = '…';
+      try {
+        const r = await API.get('getNextDocNumber', { token: this.token(), type: type, departmentId: dept });
+        document.getElementById('dcNo').value = r.next || '';
+        document.getElementById('dcNoHint').textContent = r.pattern ? ('รูปแบบ: ' + r.pattern) : (r.deptCode ? '' : 'ฝ่ายนี้ยังไม่มีรหัสฝ่าย (DepartmentCode)');
+      } catch (e) { }
+      genBtn.disabled = false; genBtn.textContent = 'ขอเลขถัดไป';
+    });
   },
 
   async submitCreate() {
@@ -646,7 +661,7 @@ const DocumentsPage = {
       if (!comment) { showErr('กรุณาใส่ข้อคิดเห็น'); return; }
       const ok = scrim.querySelector('#dcMOk'); ok.disabled = true; ok.textContent = 'กำลังบันทึก…';
       API.post('reviewDocument', { token: self.token(), documentId: doc.DocumentID, sharedDepartments: shared, fourMChange: fourM, reviewComment: comment })
-        .then(() => { close(); self.toast('Verified & sent to Manager'); self.openDetail(doc.DocumentID); })
+        .then((res) => { close(); self.toast(res && res.warning ? ('Verified — ⚠ ' + res.warning) : 'Verified & sent to Manager'); self.openDetail(doc.DocumentID); })
         .catch(ex => { showErr((ex && ex.message) || 'ล้มเหลว'); ok.disabled = false; ok.textContent = 'Verify & send to Manager'; });
     });
   },
@@ -697,7 +712,15 @@ const DocumentsPage = {
       ? shared.map(id => `<span class="dar-copy">☑ ${dEsc(this.deptName(id))}</span>`).join('')
       : '<span class="dar-faint">— ไม่มี —</span>';
     const sigLine = (name, date) => `<div class="dar-sig"><div class="dar-sigline">${name ? dEsc(name) : ''}</div><div class="dar-sigsub">( ${name ? dEsc(name) : '……………………'} )</div><div class="dar-sigsub">${date ? darDate(date) : '……/……/……'}</div></div>`;
-    const formTag = dEsc(fm.no || 'FM-DC-01') + (fm.rev ? '  Rev. ' + dEsc(fm.rev) : '') + (fm.eff ? '  Eff. ' + dEsc(fm.eff) : '');
+    const fmtEff = v => {
+      if (!v) return '';
+      const s = String(v);
+      if (/GMT|\dT\d|^[A-Za-z]{3} /.test(s)) {   // looks like a Date object / ISO string
+        const d = new Date(v); if (!isNaN(d)) { const p = n => String(n).padStart(2, '0'); return p(d.getDate()) + '/' + p(d.getMonth() + 1) + '/' + d.getFullYear(); }
+      }
+      return s;   // already a plain string like "01/03/14"
+    };
+    const formTag = dEsc(fm.no || 'FM-DC-01') + (fm.rev ? '  Rev. ' + dEsc(fm.rev) : '') + (fm.eff ? '  Eff. ' + dEsc(fmtEff(fm.eff)) : '');
 
     const c = document.getElementById('pageContent');
     c.innerHTML = `
