@@ -21,7 +21,7 @@ const DC_REQ_TYPES = [
 ];
 const DC_STATUS = {
   DRAFT: ['Waiting for Submit', 'dc-b-off'], SUBMITTED: ['Waiting for Dept Approve', 'dc-b-info'],
-  DEPT_APPROVED: ['Waiting for QMS Review', 'dc-b-info'], UNDER_REVIEW: ['Waiting for QMS Forward', 'dc-b-warn'],
+  DEPT_APPROVED: ['Waiting for QMS Review', 'dc-b-info'], UNDER_REVIEW: ['Waiting for QMS Review', 'dc-b-info'],
   PENDING_PUBLISH: ['Waiting for QMS Manager Approve', 'dc-b-warn'], EFFECTIVE: ['Published', 'dc-b-ok'],
   CANCELLED: ['Cancelled', 'dc-b-cancel']
 };
