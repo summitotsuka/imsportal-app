@@ -679,7 +679,11 @@ const DocumentsPage = {
     } catch (ex) { this.toast((ex && ex.message) || 'เปิดดูไม่สำเร็จ'); }
   },
 
-  openDar(doc, history) {
+  async openDar(doc, history) {
+    // form meta (FM-DC-01 rev/eff) from Settings, cached
+    if (!this.darForm) { try { this.darForm = (await API.get('getDocumentFormContext', { token: this.token() })).darForm || {}; } catch (e) { this.darForm = {}; } }
+    const fm = this.darForm || {};
+    const darDate = v => { if (!v) return ''; try { const d = new Date(v); if (isNaN(d)) return String(v); const p = n => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); } catch (e) { return String(v); } };
     const shared = String(doc.SharedDepartments || '').split(',').map(x => x.trim()).filter(Boolean);
     const status = String(doc.Status).toUpperCase();
     const approved = status === 'EFFECTIVE';
@@ -688,10 +692,12 @@ const DocumentsPage = {
     const cancelHist = (history || []).filter(h => String(h.Action).toUpperCase() === 'CANCEL').pop();
     const comment = doc.ReviewComment || '';
     const cancelReason = cancelHist ? (cancelHist.Comment || '') : '';
+    const attn = doc.PublishedByName ? (dEsc(doc.PublishedByName) + ' (QMS Manager)') : '……………………………………';
     const copies = shared.length
       ? shared.map(id => `<span class="dar-copy">☑ ${dEsc(this.deptName(id))}</span>`).join('')
       : '<span class="dar-faint">— ไม่มี —</span>';
-    const sigLine = (name, date) => `<div class="dar-sig"><div class="dar-sigline">${name ? dEsc(name) : ''}</div><div class="dar-sigsub">( ${name ? dEsc(name) : '……………………'} )</div><div class="dar-sigsub">${date ? dcDate(date) : '……/……/……'}</div></div>`;
+    const sigLine = (name, date) => `<div class="dar-sig"><div class="dar-sigline">${name ? dEsc(name) : ''}</div><div class="dar-sigsub">( ${name ? dEsc(name) : '……………………'} )</div><div class="dar-sigsub">${date ? darDate(date) : '……/……/……'}</div></div>`;
+    const formTag = dEsc(fm.no || 'FM-DC-01') + (fm.rev ? '  Rev. ' + dEsc(fm.rev) : '') + (fm.eff ? '  Eff. ' + dEsc(fm.eff) : '');
 
     const c = document.getElementById('pageContent');
     c.innerHTML = `
@@ -708,14 +714,17 @@ const DocumentsPage = {
 
         <div class="dar-sec">ส่วนที่ 1 : ผู้ขอดำเนินการเรื่องเอกสาร</div>
         <div class="dar-grid">
-          <div><span class="dar-l">วัน/เดือน/ปี (ที่แจ้ง) :</span> ${dcDate(doc.CreatedDate)}</div>
+          <div><span class="dar-l">วัน/เดือน/ปี (ที่แจ้ง) :</span> ${darDate(doc.CreatedDate)}</div>
+          <div><span class="dar-l">เรียน :</span> ${attn}</div>
           <div><span class="dar-l">ประเภทคำขอ :</span> ${chk(String(doc.RequestType).toUpperCase() === 'NEW')} ขอออกเอกสารใหม่</div>
+          <div></div>
           <div><span class="dar-l">เลขที่เอกสาร :</span> <b>${dEsc(doc.DocNumber)}</b></div>
           <div><span class="dar-l">REVISION No. :</span> ${dEsc(doc.Revision)}</div>
           <div class="dar-span2"><span class="dar-l">ชื่อเอกสาร :</span> ${dEsc(doc.Title)}</div>
-          <div class="dar-span2"><span class="dar-l">รายละเอียด / เหตุผลที่ขอดำเนินการ :</span> ${dEsc(doc.Reason || '—')}</div>
+          <div class="dar-span2 dar-reason"><span class="dar-l">รายละเอียด / เหตุผลที่ขอดำเนินการ :</span> ${dEsc(doc.Reason || '')}</div>
         </div>
         <div class="dar-copies"><span class="dar-l">ต้องการสำเนาให้ :</span> ${copies}</div>
+        <div class="dar-eff"><span class="dar-l">วันที่บังคับใช้ / วันที่ออกใช้เอกสาร (ฉบับใหม่) :</span> ${darDate(doc.EffectiveDate) || '……/……/……'} &nbsp;&nbsp; <span class="dar-l">REV :</span> ${dEsc(doc.Revision)}</div>
         <div class="dar-sigs">
           <div><div class="dar-sigcap">ผู้ขอดำเนินการ</div>${sigLine(doc.CreatedByName, doc.CreatedDate)}</div>
           <div><div class="dar-sigcap">ผู้อนุมัติ (ผจก./ผช.ผจก. ฝ่าย)</div>${sigLine(doc.DeptApprovedByName, doc.DeptApprovedDate)}</div>
@@ -725,13 +734,13 @@ const DocumentsPage = {
         <div class="dar-grid">
           <div>${chk(approved)} อนุมัติให้ดำเนินการ &nbsp;&nbsp; ${chk(cancelled)} ไม่อนุมัติให้ดำเนินการ</div>
           <div>${chk(String(doc.FourMChange).toUpperCase() === 'RELATED')} เกี่ยวข้องกับ 4M Change &nbsp;&nbsp; ${chk(String(doc.FourMChange).toUpperCase() === 'NOT_RELATED')} ไม่เกี่ยวข้อง</div>
-          <div class="dar-span2"><span class="dar-l">เหตุผล / ข้อคิดเห็น :</span> ${dEsc(comment)}${cancelled && cancelReason ? ' <b>(ไม่อนุมัติ: ' + dEsc(cancelReason) + ')</b>' : ''}</div>
+          <div class="dar-span2 dar-comment"><span class="dar-l">เหตุผล / ข้อคิดเห็น :</span> ${dEsc(comment)}${cancelled && cancelReason ? ' <b>(ไม่อนุมัติ: ' + dEsc(cancelReason) + ')</b>' : ''}</div>
         </div>
         <div class="dar-sigs">
           <div><div class="dar-sigcap">ผู้ตรวจสอบ (เจ้าหน้าที่ควบคุมเอกสาร)</div>${sigLine(doc.ReviewedByName, doc.ReviewedDate)}</div>
           <div><div class="dar-sigcap">ผู้อนุมัติ (QMR / EMR)</div>${sigLine(doc.PublishedByName, doc.PublishedDate)}</div>
         </div>
-        <div class="dar-foot">FM-DC-01</div>
+        <div class="dar-foot">${formTag}</div>
       </div>
       <style>
         .dar-tools{display:flex;justify-content:space-between;max-width:800px;margin:0 auto 12px}
@@ -743,15 +752,18 @@ const DocumentsPage = {
         .dar-sec{font-weight:700;background:#f0f0f0;border:1px solid #333;border-top:0;padding:4px 8px}
         .dar-grid{display:grid;grid-template-columns:1fr 1fr;gap:2px 16px;border:1px solid #333;border-top:0;padding:8px}
         .dar-span2{grid-column:1/3}
+        .dar-reason{min-height:4.2em}
+        .dar-comment{min-height:2.6em}
         .dar-l{color:#333;font-weight:600}
         .dar-copies{border:1px solid #333;border-top:0;padding:8px;display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center}
         .dar-copy{white-space:nowrap}
         .dar-faint{color:#999}
+        .dar-eff{border:1px solid #333;border-top:0;padding:8px}
         .dar-sigs{display:grid;grid-template-columns:1fr 1fr;gap:16px;border:1px solid #333;border-top:0;padding:16px 8px}
         .dar-sigcap{font-size:12px;color:#333;margin-bottom:20px}
         .dar-sigline{border-bottom:1px dotted #333;min-height:18px;text-align:center;font-weight:600}
         .dar-sigsub{text-align:center;font-size:11px;color:#555}
-        .dar-foot{border:1px solid #333;border-top:0;padding:3px 8px;font-size:11px;color:#555}
+        .dar-foot{border:1px solid #333;border-top:0;padding:3px 8px;font-size:11px;color:#555;text-align:right}
         @media print { body *{visibility:hidden} .dar-page,.dar-page *{visibility:visible} .dar-page{position:absolute;left:0;top:0;border:none;margin:0} .dar-tools{display:none} }
       </style>`;
     document.getElementById('darBack').addEventListener('click', () => this.openDetail(doc.DocumentID));
