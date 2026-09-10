@@ -45,8 +45,11 @@ function dcBadgeBig(status) {
 }
 function dcDate(v) {
   if (!v) return '—';
-  try { const d = new Date(v); if (isNaN(d)) return String(v); return d.toISOString().slice(0, 16).replace('T', ' '); }
-  catch (e) { return String(v); }
+  try {
+    const d = new Date(v); if (isNaN(d)) return String(v);
+    const p = n => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  } catch (e) { return String(v); }
 }
 
 const DocumentsPage = {
@@ -96,6 +99,7 @@ const DocumentsPage = {
       .dc-row{cursor:pointer}.dc-row:hover{background:#f7f8fa}
       .dc-id{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;color:#374151}
       .dc-grp{font-size:12px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.03em;padding:14px 10px 6px}
+      .dc-grp-row td{background:#f3f4f6;font-size:12px;font-weight:700;color:#4b5563;text-transform:uppercase;letter-spacing:.03em;padding:8px 10px}
       .dc-badge{font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px;white-space:nowrap}
       .dc-badge-lg{font-size:14px;padding:6px 16px}
       .dc-filebar{display:flex;align-items:center;gap:10px;margin-top:14px;padding-top:14px;border-top:1px solid #eef0f3}
@@ -185,30 +189,31 @@ const DocumentsPage = {
     if (!items.length) { box.innerHTML = `<p class="dc-faint" style="padding:6px">Nothing here.</p>`; return; }
 
     if (this._tab === 'acknowledge') {
-      box.innerHTML = `<table class="dc-tbl"><thead><tr><th>Document</th><th>Rev</th><th>Department</th></tr></thead><tbody>${items.map(a => `
+      box.innerHTML = `<table class="dc-tbl"><thead><tr><th>Doc No.</th><th>Rev</th><th>Title</th><th>Department</th><th>Effective</th></tr></thead><tbody>${items.map(a => `
         <tr class="dc-row" data-doc="${dEsc(a.DocumentID)}">
-          <td><span class="dc-id">${dEsc(a.DocNumber)}</span></td><td>${dEsc(a.Revision)}</td><td>${dEsc(this.deptName(a.DepartmentID))}</td>
+          <td><span class="dc-id">${dEsc(a.DocNumber)}</span></td><td>${dEsc(a.Revision)}</td><td>${dEsc(a.Title)}</td>
+          <td>${dEsc(this.deptName(a.DepartmentID))}</td><td class="dc-faint" style="white-space:nowrap">${dcDate(a.EffectiveDate)}</td>
         </tr>`).join('')}</tbody></table>`;
     } else if (this._tab === 'myDocuments') {
       const groups = {};
       items.forEach(d => { const t = String(d.DocumentType || '').toUpperCase(); (groups[t] = groups[t] || []).push(d); });
       const effTime = d => { const v = d.EffectiveDate; const t = v ? new Date(v).getTime() : 0; return isNaN(t) ? 0 : t; };
-      box.innerHTML = DC_TYPES.filter(t => groups[t]).map(t => {
+      const body = DC_TYPES.filter(t => groups[t]).map(t => {
         const rows = groups[t].slice().sort((a, b) => {
           const c = String(a.DocNumber).localeCompare(String(b.DocNumber));
-          return c !== 0 ? c : (effTime(b) - effTime(a));   // Doc No. asc, then Effective Date newest first
+          return c !== 0 ? c : (effTime(b) - effTime(a));
         });
-        return `<div class="dc-grp">${DC_TYPE_LABEL[t] || t}</div>
-        <table class="dc-tbl"><thead><tr><th>Doc No.</th><th>Rev</th><th>Title</th><th>Dept</th><th>Status</th><th>Effective</th></tr></thead>
-        <tbody>${rows.map(d => `<tr class="dc-row" data-doc="${dEsc(d.DocumentID)}">
-          <td><span class="dc-id">${dEsc(d.DocNumber)}</span></td>
-          <td>${dEsc(d.Revision)}</td>
-          <td>${dEsc(d.Title)}</td>
-          <td>${dEsc(this.deptName(d.DepartmentID))}</td>
-          <td>${dcBadge(d.Status)}</td>
-          <td class="dc-faint" style="white-space:nowrap">${dcDate(d.EffectiveDate)}</td>
-        </tr>`).join('')}</tbody></table>`;
+        return `<tr class="dc-grp-row"><td colspan="6">${DC_TYPE_LABEL[t] || t}</td></tr>` +
+          rows.map(d => `<tr class="dc-row" data-doc="${dEsc(d.DocumentID)}">
+            <td><span class="dc-id">${dEsc(d.DocNumber)}</span></td>
+            <td>${dEsc(d.Revision)}</td>
+            <td>${dEsc(d.Title)}</td>
+            <td>${dEsc(this.deptName(d.DepartmentID))}</td>
+            <td>${dcBadge(d.Status)}</td>
+            <td class="dc-faint" style="white-space:nowrap">${dcDate(d.EffectiveDate)}</td>
+          </tr>`).join('');
       }).join('');
+      box.innerHTML = `<table class="dc-tbl"><thead><tr><th>Doc No.</th><th>Rev</th><th>Title</th><th>Dept</th><th>Status</th><th>Effective</th></tr></thead><tbody>${body}</tbody></table>`;
     } else {
       box.innerHTML = `<table class="dc-tbl"><thead><tr><th>Doc No.</th><th>Title</th><th>Dept</th><th>Status</th><th>Created</th></tr></thead><tbody>${items.map(d => this.rowHtml(d)).join('')}</tbody></table>`;
     }
