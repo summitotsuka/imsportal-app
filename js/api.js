@@ -4,14 +4,15 @@ const API = {
 
     const query = new URLSearchParams({
       action,
-      ...params
+      ...params,
+      _ts: Date.now()
     });
 
     const url =
       `${CONFIG.API_URL}?${query.toString()}`;
 
     const response =
-      await fetch(url);
+      await fetch(url, { cache: 'no-store', redirect: 'follow' });
 
     if (!response.ok) {
       throw new Error(

@@ -399,6 +399,8 @@ const DocumentsPage = {
   },
 
   async reopenEdit(documentId) {
+    const c = document.getElementById('pageContent');
+    if (c) c.innerHTML = `<div class="dc-wrap"><div class="dc-card"><p class="dc-muted">Loading…</p></div></div>`;
     const r = await API.get('getDocument', { token: this.token(), documentId });
     this.openEdit(r.document);
   },
