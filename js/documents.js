@@ -259,10 +259,10 @@ const DocumentsPage = {
           </div>
           <div class="dc-2col">
             <div class="dc-field"><label>Document number <span class="dc-req">*</span></label>
-              <div style="display:flex;gap:8px"><input class="dc-in" id="dcNo" placeholder="e.g. FM-HR-001" style="flex:1"><button class="dc-btn" id="dcNoGen" type="button">ขอเลขถัดไป</button></div>
+              <div style="display:flex;gap:8px"><input class="dc-in" id="dcNo" placeholder="e.g. FM-HR-001" style="flex:1"><button class="dc-btn" id="dcNoGen" type="button">Generate Document No.</button></div>
               <div class="dc-faint" id="dcNoHint" style="font-size:12px;margin-top:4px"></div>
             </div>
-            <div class="dc-field"><label>Revision <span class="dc-req">*</span></label><input class="dc-in" id="dcRev" value="00" readonly title="เอกสารใหม่เริ่มที่ 00"></div>
+            <div class="dc-field"><label>Revision <span class="dc-req">*</span></label><input class="dc-in" id="dcRev" value="00"></div>
           </div>
           <div class="dc-field"><label>Title <span class="dc-req">*</span></label><input class="dc-in" id="dcTitle"></div>
           <div class="dc-field"><label>Owner department <span class="dc-req">*</span></label><select class="dc-sel" id="dcDept">${deptOpts}</select></div>
@@ -286,15 +286,25 @@ const DocumentsPage = {
     document.getElementById('dcSave').addEventListener('click', () => this.submitCreate());
     const genBtn = document.getElementById('dcNoGen');
     if (genBtn) genBtn.addEventListener('click', async () => {
-      const type = document.getElementById('dcType').value;
-      const dept = document.getElementById('dcDept').value;
+      const noEl = document.getElementById('dcNo'), revEl = document.getElementById('dcRev'), hintEl = document.getElementById('dcNoHint');
+      const noVal = noEl.value.trim(), revVal = revEl.value.trim();
+      const type = document.getElementById('dcType').value, dept = document.getElementById('dcDept').value;
+      hintEl.textContent = ''; hintEl.style.color = '';
+      if (!noVal && revVal) { hintEl.style.color = '#b91c1c'; hintEl.textContent = 'Please fill Document No.'; return; }
       genBtn.disabled = true; genBtn.textContent = '…';
       try {
-        const r = await API.get('getNextDocNumber', { token: this.token(), type: type, departmentId: dept });
-        document.getElementById('dcNo').value = r.next || '';
-        document.getElementById('dcNoHint').textContent = r.pattern ? ('รูปแบบ: ' + r.pattern) : (r.deptCode ? '' : 'ฝ่ายนี้ยังไม่มีรหัสฝ่าย (DepartmentCode)');
+        if (!noVal && !revVal) {
+          const r = await API.get('getNextDocNumber', { token: this.token(), type: type, departmentId: dept });
+          noEl.value = r.next || ''; revEl.value = '00';
+          hintEl.textContent = r.pattern ? ('รูปแบบ: ' + r.pattern) : (r.deptCode ? '' : 'ฝ่ายนี้ยังไม่มีรหัสฝ่าย (DepartmentCode)');
+        } else if (noVal && !revVal) {
+          const r = await API.get('getNextRevision', { token: this.token(), docNumber: noVal });
+          if (r.warning) { hintEl.style.color = '#9a6400'; hintEl.textContent = '⚠ ' + r.warning; }
+          else revEl.value = r.next || '';
+        }
+        // both filled -> leave as entered
       } catch (e) { }
-      genBtn.disabled = false; genBtn.textContent = 'ขอเลขถัดไป';
+      genBtn.disabled = false; genBtn.textContent = 'Generate Document No.';
     });
   },
 
@@ -317,7 +327,7 @@ const DocumentsPage = {
       };
       if (fileEl.files && fileEl.files[0]) payload.file = await this.readFile(fileEl.files[0]);
       const res = await API.post('createDocument', payload);
-      this.toast('Document created');
+      this.toast(res && res.warning ? ('Document created — ⚠ ' + res.warning) : 'Document created');
       this.openDetail(res.documentId);
     } catch (ex) {
       err((ex && ex.message) || 'Create failed'); btn.disabled = false; btn.textContent = 'Create';
