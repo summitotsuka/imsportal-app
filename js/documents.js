@@ -13,11 +13,7 @@ const DC_TYPE_LABEL = {
 };
 const DC_REQ_TYPES = [
   { v: 'NEW', label: 'New document', on: true },
-  { v: 'REVISE', label: 'Revise (soon)', on: false },
-  { v: 'CONTROLLED_COPY', label: 'Controlled copy (soon)', on: false },
-  { v: 'OBSOLETE', label: 'Obsolete (soon)', on: false },
-  { v: 'DESTROY', label: 'Destroy copy (soon)', on: false },
-  { v: 'OTHER', label: 'Other (soon)', on: false }
+  { v: 'OTHER', label: 'Other', on: true }
 ];
 const DC_STATUS = {
   DRAFT: ['Waiting for Submit', 'dc-b-off'], SUBMITTED: ['Waiting for Dept Approve', 'dc-b-info'],
@@ -27,7 +23,7 @@ const DC_STATUS = {
 };
 const DC_TABS = [
   ['myDocuments', 'My Documents'], ['drafts', 'In Progress'],
-  ['forApproval', 'For Approval'], ['qmsReview', 'QMS Review'], ['acknowledge', 'Acknowledge']
+  ['forApproval', 'For Approval'], ['qmsReview', 'QMS Review'], ['acknowledge', 'Acknowledge'], ['obsolete', 'Obsolete']
 ];
 
 function dEsc(s) {
@@ -161,6 +157,7 @@ const DocumentsPage = {
     const tabAllowed = (id) => {
       if (id === 'forApproval') return ['R001', 'R002', 'R006', 'R007'].indexOf(role) !== -1;
       if (id === 'qmsReview') return ['R001', 'R003'].indexOf(role) !== -1;
+      if (id === 'obsolete') return ['R001', 'R002', 'R003'].indexOf(role) !== -1;
       return true;
     };
     const allowed = DC_TABS.filter(([id]) => tabAllowed(id));
@@ -513,6 +510,18 @@ const DocumentsPage = {
           <h2 style="margin:0 0 12px;font-size:15px">History</h2>
           <ul class="dc-tl">${tl || '<li><span class="dot"></span><div class="meta">No history</div></li>'}</ul>
         </div>
+
+        ${(this._actions || []).indexOf('revise') !== -1 ? `
+        <div class="dc-card">
+          <h2 style="margin:0 0 12px;font-size:15px">Document lifecycle</h2>
+          <div class="dc-actbar">
+            <button class="dc-btn dc-primary" id="dcRevise" type="button">Revise (new revision)</button>
+            <button class="dc-btn dc-ghost" type="button" disabled title="เร็ว ๆ นี้">Controlled Copy</button>
+            <button class="dc-btn dc-ghost" type="button" disabled title="เร็ว ๆ นี้">Obsolete</button>
+            <button class="dc-btn dc-ghost" type="button" disabled title="เร็ว ๆ นี้">Destroy Copy</button>
+          </div>
+          <div id="dcLifeErr"></div>
+        </div>` : ''}
       </div>
       <div class="dc-toast" id="dcToast"></div>`;
 
@@ -523,6 +532,13 @@ const DocumentsPage = {
     if (vw) vw.addEventListener('click', () => this.view(doc.DocumentID));
     const dar = document.getElementById('dcDar');
     if (dar) dar.addEventListener('click', () => this.openDar(doc, history));
+    const rv = document.getElementById('dcRevise');
+    if (rv) rv.addEventListener('click', () => this.confirmModal({
+      title: 'Revise document', message: 'สร้างฉบับแก้ไข (Revision ใหม่) จากเอกสารนี้ — ฉบับปัจจุบันจะถูกแทนที่เมื่อฉบับใหม่ประกาศใช้', confirmLabel: 'Create revision',
+      onConfirm: (v, done) => API.post('reviseDocument', { token: this.token(), documentId: doc.DocumentID })
+        .then(res => { done(); this.toast('สร้าง Revision ' + (res.revision || '') + ' แล้ว — กรุณาแก้ไข เหตุผล + แนบไฟล์'); this.openDetail(res.documentId); })
+        .catch(ex => done((ex && ex.message) || 'ล้มเหลว'))
+    }));
     this.wireActions(doc);
   },
 
