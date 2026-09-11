@@ -536,7 +536,7 @@ const DocumentsPage = {
     if (rv) rv.addEventListener('click', () => this.confirmModal({
       title: 'Revise document', message: 'สร้างฉบับแก้ไข (Revision ใหม่) จากเอกสารนี้ — ฉบับปัจจุบันจะถูกแทนที่เมื่อฉบับใหม่ประกาศใช้', confirmLabel: 'Create revision',
       onConfirm: (v, done) => API.post('reviseDocument', { token: this.token(), documentId: doc.DocumentID })
-        .then(res => { done(); this.toast('สร้าง Revision ' + (res.revision || '') + ' แล้ว — กรุณาแก้ไข เหตุผล + แนบไฟล์'); this.openDetail(res.documentId); })
+        .then(res => { done(); this.toast('สร้าง Revision ' + (res.revision || '') + ' แล้ว — กรุณากรอกเหตุผล + แนบไฟล์'); this.reopenEdit(res.documentId); })
         .catch(ex => done((ex && ex.message) || 'ล้มเหลว'))
     }));
     this.wireActions(doc);
@@ -766,7 +766,7 @@ const DocumentsPage = {
         <div class="dar-grid">
           <div><span class="dar-l">วัน/เดือน/ปี (ที่แจ้ง) :</span> ${darDate(doc.CreatedDate)}</div>
           <div><span class="dar-l">เรียน :</span> ${attn}</div>
-          <div><span class="dar-l">ประเภทคำขอ :</span> ${chk(String(doc.RequestType).toUpperCase() === 'NEW')} ขอออกเอกสารใหม่</div>
+          <div><span class="dar-l">ประเภทคำขอ :</span> ${chk(true)} ${({ NEW: 'ขอออกเอกสารใหม่', REVISE: 'ขอแก้ไขเอกสาร', CONTROLLED_COPY: 'ขอสำเนาเอกสาร', OBSOLETE: 'ขอยกเลิกเอกสาร', DESTROY: 'ขอทำลายเอกสาร', OTHER: 'อื่น ๆ' }[String(doc.RequestType || 'NEW').toUpperCase()] || 'ขอออกเอกสารใหม่')}</div>
           <div></div>
           <div><span class="dar-l">เลขที่เอกสาร :</span> <b>${dEsc(doc.DocNumber)}</b></div>
           <div><span class="dar-l">REVISION No. :</span> ${dEsc(doc.Revision)}</div>
