@@ -459,7 +459,7 @@ const DocumentsPage = {
       ? ackTargets.filter((d, i) => d && ackTargets.indexOf(d) === i && ackDepts.indexOf(d) === -1) : [];
     const ackRows = (ack.acknowledgements || []).map(a => `
       <tr><td>${dEsc(this.deptName(a.DepartmentID))}</td>
-        <td>${String(a.Status).toUpperCase() === 'ACKNOWLEDGED' ? '<span class="dc-badge dc-b-ok">Acknowledged</span>' : '<span class="dc-badge dc-b-off">Pending</span>'}</td>
+        <td>${String(a.Status).toUpperCase() === 'ACKNOWLEDGED' ? '<span class="dc-badge dc-b-ok">Acknowledged</span>' : (String(a.Status).toUpperCase() === 'SUPERSEDED' ? '<span class="dc-badge dc-b-off">Superseded</span>' : '<span class="dc-badge dc-b-off">Pending</span>')}</td>
         <td>${dEsc(a.AcknowledgedByName || '—')}</td><td>${a.AcknowledgedDate ? dcDate(a.AcknowledgedDate) : '—'}</td></tr>`).join('');
     const tl = history.slice().reverse().map(h => `
       <li><span class="dot"></span>
