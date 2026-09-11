@@ -129,6 +129,7 @@ const DocumentsPage = {
       .dc-toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:#172033;color:#fff;font-size:13.5px;padding:10px 18px;border-radius:8px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:60}
       .dc-toast.show{opacity:1}
       .dc-file{font-size:13px;border:1px dashed #cbd5e1;border-radius:8px;padding:10px;background:#fafbfc}
+      .dc-ph-faint::placeholder{color:#cbd5e1}
       .dc-warn{margin-top:10px;background:#fff4e5;border:1px solid #fde3b8;color:#9a6400;font-size:13px;border-radius:8px;padding:9px 12px}
       .dc-actbar{display:flex;flex-wrap:wrap;gap:9px}
       .dc-scrim{position:fixed;inset:0;background:rgba(15,20,30,.45);display:flex;align-items:center;justify-content:center;z-index:70;padding:16px}
@@ -259,10 +260,10 @@ const DocumentsPage = {
           </div>
           <div class="dc-2col">
             <div class="dc-field"><label>Document number <span class="dc-req">*</span></label>
-              <div style="display:flex;gap:8px"><input class="dc-in" id="dcNo" placeholder="e.g. FM-HR-001" style="flex:1"><button class="dc-btn" id="dcNoGen" type="button">Generate Document No.</button></div>
+              <div style="display:flex;gap:8px"><input class="dc-in dc-ph-faint" id="dcNo" placeholder="กด Generate" style="flex:1"><button class="dc-btn" id="dcNoGen" type="button">Generate Document No.</button></div>
               <div class="dc-faint" id="dcNoHint" style="font-size:12px;margin-top:4px"></div>
             </div>
-            <div class="dc-field"><label>Revision <span class="dc-req">*</span></label><input class="dc-in" id="dcRev" value="00"></div>
+            <div class="dc-field"><label>Revision <span class="dc-req">*</span></label><input class="dc-in" id="dcRev" placeholder="Rev"></div>
           </div>
           <div class="dc-field"><label>Title <span class="dc-req">*</span></label><input class="dc-in" id="dcTitle"></div>
           <div class="dc-field"><label>Owner department <span class="dc-req">*</span></label><select class="dc-sel" id="dcDept">${deptOpts}</select></div>
