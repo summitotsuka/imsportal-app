@@ -401,8 +401,18 @@ const DocumentsPage = {
   async reopenEdit(documentId) {
     const c = document.getElementById('pageContent');
     if (c) c.innerHTML = `<div class="dc-wrap"><div class="dc-card"><p class="dc-muted">Loading…</p></div></div>`;
-    const r = await API.get('getDocument', { token: this.token(), documentId });
-    this.openEdit(r.document);
+    try {
+      const r = await API.get('getDocument', { token: this.token(), documentId });
+      this.openEdit(r.document);
+    } catch (e) {
+      if (c) c.innerHTML = `<div class="dc-wrap"><div class="dc-card" style="text-align:center;padding:28px">
+        <p class="dc-muted" style="margin:0 0 16px">โหลดไม่สำเร็จ — ลองอีกครั้ง</p>
+        <button class="dc-btn dc-primary" id="dcRetryEdit" type="button">ลองใหม่</button>
+        <button class="dc-btn dc-ghost" id="dcRetryDetail" type="button">ไปหน้าเอกสาร</button>
+      </div></div>`;
+      const re = document.getElementById('dcRetryEdit'); if (re) re.addEventListener('click', () => this.reopenEdit(documentId));
+      const rd = document.getElementById('dcRetryDetail'); if (rd) rd.addEventListener('click', () => this.openDetail(documentId));
+    }
   },
 
   async submitEdit(doc) {
@@ -538,7 +548,18 @@ const DocumentsPage = {
     if (rv) rv.addEventListener('click', () => this.confirmModal({
       title: 'Revise document', message: 'สร้างฉบับแก้ไข (Revision ใหม่) จากเอกสารนี้ — ฉบับปัจจุบันจะถูกแทนที่เมื่อฉบับใหม่ประกาศใช้', confirmLabel: 'Create revision',
       onConfirm: (v, done) => API.post('reviseDocument', { token: this.token(), documentId: doc.DocumentID })
-        .then(res => { done(); this.toast('สร้าง Revision ' + (res.revision || '') + ' แล้ว — กรุณากรอกเหตุผล + แนบไฟล์'); this.reopenEdit(res.documentId); })
+        .then(res => {
+          done();
+          const nd = res.document, nid = res.documentId, rev = res.revision || '';
+          const c = document.getElementById('pageContent');
+          if (c) c.innerHTML = `<div class="dc-wrap"><div class="dc-card" style="text-align:center;padding:32px 20px">
+            <div style="font-size:16px;font-weight:600;margin-bottom:6px">สร้าง Revision ${dEsc(rev)} แล้ว ✓</div>
+            <p class="dc-muted" style="margin:0 0 20px">กรุณากรอก <b>เหตุผล</b> + <b>แนบไฟล์</b> ให้ครบก่อนส่งอนุมัติ</p>
+            <button class="dc-btn dc-primary" id="dcOpenRev" type="button">กรอกข้อมูลเอกสาร (Open form)</button>
+          </div></div>`;
+          const b = document.getElementById('dcOpenRev');
+          if (b) b.addEventListener('click', () => nd ? this.openEdit(nd) : this.reopenEdit(nid));
+        })
         .catch(ex => done((ex && ex.message) || 'ล้มเหลว'))
     }));
     this.wireActions(doc);
