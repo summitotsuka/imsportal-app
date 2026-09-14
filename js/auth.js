@@ -91,34 +91,23 @@ const AUTH = {
 
   async logout() {
 
-    const token =
-      this.getToken();
+    const token = this.getToken();
 
-
-    if (token) {
-
-      try {
-
-        await API.post(
-          'logout',
-          {
-            token
-          }
-        );
-
-      } catch (error) {
-
-        console.warn(
-          'Logout API failed:',
-          error
-        );
-
-      }
-
-    }
-
-
+    // clear local session immediately so the UI can switch without waiting
     this.clearSession();
+    if (typeof _profileCache !== 'undefined') { try { _profileCache = null; _profilePromise = null; } catch (e) { } }
+
+    // tell the server without blocking (sendBeacon survives the reload)
+    if (token) {
+      try {
+        const blob = new Blob(
+          [JSON.stringify({ action: 'logout', token: token })],
+          { type: 'text/plain;charset=utf-8' }
+        );
+        if (navigator.sendBeacon) navigator.sendBeacon(CONFIG.API_URL, blob);
+        else fetch(CONFIG.API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'logout', token: token }), keepalive: true }).catch(function () { });
+      } catch (e) { }
+    }
 
     window.location.reload();
 

@@ -247,6 +247,8 @@ async function handleLogin(event) {
 }
 
 
+var _profileCache = null, _profilePromise = null;
+
 function setCurrentUser(user) {
 
   const usernameElement =
@@ -286,17 +288,33 @@ function setCurrentUser(user) {
     return (position ? position + ' ' : '') + '(' + (ROLE_NAME[roleId] || roleId || '') + ')';
   };
 
+  // already enriched this session -> use cache, no network call
+  if (_profileCache) {
+    var pc = _profileCache;
+    if (usernameElement) usernameElement.textContent = line1(pc.employeeId || user.employeeId, pc.fullName || user.fullName, pc.department);
+    if (roleElement) roleElement.textContent = line2(pc.position, pc.roleId || user.roleId);
+    return;
+  }
+
+  // base values first
   if (usernameElement) usernameElement.textContent = line1(user.employeeId, user.fullName || user.username, '');
   if (roleElement) roleElement.textContent = line2('', user.roleId);
 
-  // enrich with Department + Position from the profile
-  try {
-    API.post('getMyProfile', { token: AUTH.getToken() }).then(function (p) {
-      if (!p) return;
-      if (usernameElement) usernameElement.textContent = line1(p.employeeId || user.employeeId, p.fullName || user.fullName, p.department);
-      if (roleElement) roleElement.textContent = line2(p.position, p.roleId || user.roleId);
-    }).catch(function () { });
-  } catch (e) { }
+  // enrich once — a single shared request even if setCurrentUser runs several times
+  var token = AUTH.getToken();
+  if (!token) return;
+  if (!_profilePromise) {
+    _profilePromise = API.post('getMyProfile', { token: token })
+      .then(function (p) { if (p) _profileCache = p; return p; })
+      .catch(function () { return null; });
+  }
+  _profilePromise.then(function (p) {
+    if (!p) return;
+    var un = document.getElementById('currentUsername');
+    var rl = document.getElementById('currentRole');
+    if (un) un.textContent = line1(p.employeeId || user.employeeId, p.fullName || user.fullName, p.department);
+    if (rl) rl.textContent = line2(p.position, p.roleId || user.roleId);
+  });
 
 }
 
