@@ -19,7 +19,11 @@ const DC_STATUS = {
   DRAFT: ['Waiting for Submit', 'dc-b-off'], SUBMITTED: ['Waiting for Dept Approve', 'dc-b-info'],
   DEPT_APPROVED: ['Waiting for QMS Review', 'dc-b-info'], UNDER_REVIEW: ['Waiting for QMS Review', 'dc-b-info'],
   PENDING_PUBLISH: ['Waiting for QMS Manager Approve', 'dc-b-warn'], EFFECTIVE: ['Published', 'dc-b-ok'],
-  CANCELLED: ['Cancelled', 'dc-b-cancel']
+  CANCELLED: ['Cancelled', 'dc-b-cancel'],
+  SUBMITTED_OBSOLETE: ['Obsolete — waiting Dept Approve', 'dc-b-warn'],
+  DEPT_APPROVED_OBSOLETE: ['Obsolete — waiting QMS Review', 'dc-b-warn'],
+  PENDING_OBSOLETE: ['Obsolete — waiting Manager Approve', 'dc-b-warn'],
+  OBSOLETE: ['Obsolete', 'dc-b-cancel']
 };
 const DC_TABS = [
   ['myDocuments', 'My Documents'], ['drafts', 'In Progress'],
@@ -206,7 +210,7 @@ const DocumentsPage = {
           rows.map(d => `<tr class="dc-row" data-doc="${dEsc(d.DocumentID)}">
             <td><span class="dc-id">${dEsc(d.DocNumber)}</span></td>
             <td>${dEsc(d.Revision)}</td>
-            <td>${dEsc(d.Title)}</td>
+            <td>${dEsc(d.Title)}${d.pendingObsolete ? ' <span class="dc-badge dc-b-warn" style="font-size:10px">กำลังขอยกเลิก</span>' : ''}</td>
             <td>${dEsc(this.deptName(d.DepartmentID))}</td>
             <td>${dcBadge(d.Status)}</td>
             <td class="dc-faint" style="white-space:nowrap">${dcDate(d.EffectiveDate)}</td>
@@ -530,7 +534,7 @@ const DocumentsPage = {
           <div class="dc-actbar">
             <button class="dc-btn dc-primary" id="dcRevise" type="button">Revise (new revision)</button>
             <button class="dc-btn dc-ghost" type="button" disabled title="เร็ว ๆ นี้">Controlled Copy</button>
-            <button class="dc-btn dc-ghost" type="button" disabled title="เร็ว ๆ นี้">Obsolete</button>
+            ${(this._actions || []).indexOf('obsolete') !== -1 ? '<button class="dc-btn dc-danger" id="dcObsolete" type="button">Obsolete (withdraw document)</button>' : '<button class="dc-btn dc-ghost" type="button" disabled title="เร็ว ๆ นี้">Obsolete</button>'}
             <button class="dc-btn dc-ghost" type="button" disabled title="เร็ว ๆ นี้">Destroy Copy</button>
           </div>
           <div id="dcLifeErr"></div>
@@ -546,6 +550,13 @@ const DocumentsPage = {
     const dar = document.getElementById('dcDar');
     if (dar) dar.addEventListener('click', () => this.openDar(doc, history));
     const rv = document.getElementById('dcRevise');
+    const ob = document.getElementById('dcObsolete');
+    if (ob) ob.addEventListener('click', () => this.confirmModal({
+      title: 'Obsolete document', message: 'ขอยกเลิกการใช้งานเอกสารนี้ (ต้องผ่านการอนุมัติ) — เอกสารยังใช้งานได้จนกว่าจะอนุมัติเสร็จ', requireComment: true, commentLabel: 'เหตุผลที่ขอยกเลิก (จำเป็น)', confirmLabel: 'Request obsolete', danger: true,
+      onConfirm: (v, done) => API.post('requestObsolete', { token: this.token(), documentId: doc.DocumentID, reason: v.comment })
+        .then(() => { done(); this.toast('ส่งคำขอยกเลิกเอกสารแล้ว'); this.openDetail(doc.DocumentID); })
+        .catch(ex => done((ex && ex.message) || 'ล้มเหลว'))
+    }));
     if (rv) rv.addEventListener('click', () => this.confirmModal({
       title: 'Revise document', message: 'สร้างฉบับแก้ไข (Revision ใหม่) จากเอกสารนี้ — ฉบับปัจจุบันจะถูกแทนที่เมื่อฉบับใหม่ประกาศใช้', confirmLabel: 'Create revision',
       onConfirm: (v, done) => API.post('reviseDocument', { token: this.token(), documentId: doc.DocumentID })
@@ -579,6 +590,7 @@ const DocumentsPage = {
     if (acts.indexOf('publish') !== -1) b.push(btn('publish', 'Publish (make effective)', 'dc-primary'));
     if (acts.indexOf('reject') !== -1) b.push(btn('reject', 'Reject', 'dc-danger'));
     if (acts.indexOf('cancel') !== -1) b.push(btn('cancel', 'Cancel document', 'dc-danger'));
+    if (acts.indexOf('withdrawObsolete') !== -1) b.push(btn('withdrawObsolete', 'Withdraw obsolete request', 'dc-ghost'));
     if (acts.indexOf('acknowledge') !== -1) ackDepts.forEach(d =>
       b.push(`<button class="dc-btn dc-primary" data-ack="${dEsc(d)}" type="button">Acknowledge — ${dEsc(this.deptName(d))}</button>`));
     if (!b.length) return '';
@@ -602,9 +614,10 @@ const DocumentsPage = {
         });
         else if (act === 'reject') {
           const rst = String(doc.Status).toUpperCase();
-          const viaReview = (rst === 'DEPT_APPROVED' || rst === 'UNDER_REVIEW');
+          const viaReview = (rst === 'DEPT_APPROVED' || rst === 'UNDER_REVIEW' || rst === 'DEPT_APPROVED_OBSOLETE');
+          const isObsRej = (rst === 'SUBMITTED_OBSOLETE' || rst === 'DEPT_APPROVED_OBSOLETE' || rst === 'PENDING_OBSOLETE');
           self.confirmModal({
-            title: 'Reject document', message: viaReview ? 'ตีกลับให้ฝ่ายแก้ไข (กลับเป็นฉบับร่าง)' : 'ตีกลับเอกสารไปขั้นก่อนหน้าเพื่อแก้ไข',
+            title: isObsRej ? 'Reject obsolete request' : 'Reject document', message: isObsRej ? 'ปฏิเสธคำขอยกเลิก — เอกสารกลับมาใช้งานปกติ' : (viaReview ? 'ตีกลับให้ฝ่ายแก้ไข (กลับเป็นฉบับร่าง)' : 'ตีกลับเอกสารไปขั้นก่อนหน้าเพื่อแก้ไข'),
             requireComment: true, commentLabel: 'เหตุผลที่ตีกลับ (จำเป็น)', confirmLabel: 'Reject', danger: true,
             onConfirm: (v, done) => viaReview
               ? self.runModal('rejectReview', { documentId: id, comment: v.comment }, 'ตีกลับให้แก้ไขแล้ว', done, id)
@@ -614,6 +627,10 @@ const DocumentsPage = {
         else if (act === 'cancel') self.confirmModal({
           title: 'Cancel document', message: 'ยกเลิกเอกสารถาวร — จะทำอะไรต่อไม่ได้อีก', requireComment: true, commentLabel: 'เหตุผลที่ยกเลิก (จำเป็น)', requireMaster: true, confirmLabel: 'Cancel document', danger: true,
           onConfirm: (v, done) => self.runModal('cancelDocument', { documentId: id, comment: v.comment, masterPassword: v.master }, 'ยกเลิกเอกสารแล้ว', done, id)
+        });
+        else if (act === 'withdrawObsolete') self.confirmModal({
+          title: 'Withdraw obsolete request', message: 'ถอนคำขอยกเลิก — เอกสารกลับมาใช้งานปกติ (EFFECTIVE)', confirmLabel: 'Withdraw',
+          onConfirm: (v, done) => self.runModal('withdrawObsolete', { documentId: id, comment: v.comment }, 'ถอนคำขอยกเลิกแล้ว', done, id)
         });
       });
     });
@@ -762,6 +779,8 @@ const DocumentsPage = {
     const comment = doc.ReviewComment || '';
     const cancelReason = cancelHist ? (cancelHist.Comment || '') : '';
     const impactItems = String(doc.ImpactAssessment || '').split('|').map(function (x) { return x.trim(); }).filter(Boolean);
+    const obsReq = (history || []).filter(function (h) { return String(h.Action).toUpperCase() === 'OBSOLETE_REQUEST'; }).pop();
+    const effReqType = obsReq ? 'OBSOLETE' : String(doc.RequestType || 'NEW').toUpperCase();
     const attn = doc.PublishedByName ? (dEsc(doc.PublishedByName) + ' (QMS Manager)') : '……………………………………';
     const copies = shared.length
       ? shared.map(id => `<span class="dar-copy">☑ ${dEsc(this.deptName(id))}</span>`).join('')
@@ -794,7 +813,7 @@ const DocumentsPage = {
         <div class="dar-grid">
           <div><span class="dar-l">วัน/เดือน/ปี (ที่แจ้ง) :</span> ${darDate(doc.CreatedDate)}</div>
           <div><span class="dar-l">เรียน :</span> ${attn}</div>
-          <div><span class="dar-l">ประเภทคำขอ :</span> ${chk(true)} ${({ NEW: 'ขอออกเอกสารใหม่', REVISE: 'ขอแก้ไขเอกสาร', CONTROLLED_COPY: 'ขอสำเนาเอกสาร', OBSOLETE: 'ขอยกเลิกเอกสาร', DESTROY: 'ขอทำลายเอกสาร', OTHER: 'อื่น ๆ' }[String(doc.RequestType || 'NEW').toUpperCase()] || 'ขอออกเอกสารใหม่')}</div>
+          <div><span class="dar-l">ประเภทคำขอ :</span> ${chk(true)} ${({ NEW: 'ขอออกเอกสารใหม่', REVISE: 'ขอแก้ไขเอกสาร', CONTROLLED_COPY: 'ขอสำเนาเอกสาร', OBSOLETE: 'ขอยกเลิกเอกสาร', DESTROY: 'ขอทำลายเอกสาร', OTHER: 'อื่น ๆ' }[effReqType] || 'ขอออกเอกสารใหม่')}</div>
           <div></div>
           <div><span class="dar-l">เลขที่เอกสาร :</span> <b>${dEsc(doc.DocNumber)}</b></div>
           <div><span class="dar-l">REVISION No. :</span> ${dEsc(doc.Revision)}</div>
