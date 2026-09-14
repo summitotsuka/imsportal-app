@@ -62,6 +62,7 @@ const DocumentsPage = {
     try {
       const ctx = await API.get('getDocumentFormContext', { token: this.token() });
       (ctx.departments || []).forEach(d => { this.deptMap[d.departmentId] = d.name; });
+      this.impactChecklist = ctx.impactChecklist || [];
     } catch (e) { }
   },
   deptName(id) { return this.deptMap[String(id).trim()] || id; },
@@ -685,6 +686,8 @@ const DocumentsPage = {
       <p class="dc-muted" style="font-size:13px;margin:0 0 12px">ตรวจสอบแล้วปรับฝ่ายที่ต้องแชร์ (ถ้าจำเป็น) แล้วยืนยันเพื่อส่งให้ QMS Manager ประกาศใช้</p>
       <label style="font-size:12.5px;font-weight:600;display:block;margin-bottom:6px">Distribute copies to</label>
       <div class="dc-checks">${checks}</div>
+      ${(this.impactChecklist && this.impactChecklist.length) ? `<div style="margin-top:14px"><label style="font-size:12.5px;font-weight:600;display:block;margin-bottom:6px">Impact Assessment <span class="dc-muted" style="font-weight:400">(ติ๊กเท่าที่ตรวจสอบแล้ว)</span></label>
+        <div class="dc-checks">${this.impactChecklist.map((it, i) => `<label class="dc-chk"><input type="checkbox" class="dcRImpact" value="${dEsc(it)}"> ${dEsc(it)}</label>`).join('')}</div></div>` : ''}
       <div style="margin-top:14px"><label style="font-size:12.5px;font-weight:600;display:block;margin-bottom:4px">4M Change <span class="dc-req">*</span></label>
         <div style="display:flex;flex-direction:column;gap:6px;font-size:13.5px">
           <label style="display:flex;gap:7px;align-items:center"><input type="radio" name="dc4m" value="RELATED"> เกี่ยวข้องกับ 4M Change</label>
@@ -704,13 +707,14 @@ const DocumentsPage = {
     scrim.addEventListener('click', e => { if (e.target === scrim) close(); });
     scrim.querySelector('#dcMOk').addEventListener('click', () => {
       const shared = Array.from(scrim.querySelectorAll('.dcRShare:checked')).map(x => x.value);
+      const impact = Array.from(scrim.querySelectorAll('.dcRImpact:checked')).map(x => x.value);
       const fourM = (scrim.querySelector('input[name="dc4m"]:checked') || {}).value || '';
       const comment = scrim.querySelector('#dcRComment').value.trim();
       const showErr = m => { scrim.querySelector('#dcMErr').innerHTML = `<div class="dc-err" style="margin-top:8px">${dEsc(m)}</div>`; };
       if (!fourM) { showErr('กรุณาเลือก 4M Change'); return; }
       if (!comment) { showErr('กรุณาใส่ข้อคิดเห็น'); return; }
       const ok = scrim.querySelector('#dcMOk'); ok.disabled = true; ok.textContent = 'กำลังบันทึก…';
-      API.post('reviewDocument', { token: self.token(), documentId: doc.DocumentID, sharedDepartments: shared, fourMChange: fourM, reviewComment: comment })
+      API.post('reviewDocument', { token: self.token(), documentId: doc.DocumentID, sharedDepartments: shared, impactAssessment: impact, fourMChange: fourM, reviewComment: comment })
         .then((res) => { close(); self.toast(res && res.warning ? ('Verified — ⚠ ' + res.warning) : 'Verified & sent to Manager'); self.openDetail(doc.DocumentID); })
         .catch(ex => { showErr((ex && ex.message) || 'ล้มเหลว'); ok.disabled = false; ok.textContent = 'Verify & send to Manager'; });
     });
@@ -757,6 +761,7 @@ const DocumentsPage = {
     const cancelHist = (history || []).filter(h => String(h.Action).toUpperCase() === 'CANCEL').pop();
     const comment = doc.ReviewComment || '';
     const cancelReason = cancelHist ? (cancelHist.Comment || '') : '';
+    const impactItems = String(doc.ImpactAssessment || '').split('|').map(function (x) { return x.trim(); }).filter(Boolean);
     const attn = doc.PublishedByName ? (dEsc(doc.PublishedByName) + ' (QMS Manager)') : '……………………………………';
     const copies = shared.length
       ? shared.map(id => `<span class="dar-copy">☑ ${dEsc(this.deptName(id))}</span>`).join('')
@@ -807,6 +812,7 @@ const DocumentsPage = {
         <div class="dar-grid">
           <div>${chk(approved)} อนุมัติให้ดำเนินการ &nbsp;&nbsp; ${chk(cancelled)} ไม่อนุมัติให้ดำเนินการ</div>
           <div>${chk(String(doc.FourMChange).toUpperCase() === 'RELATED')} เกี่ยวข้องกับ 4M Change &nbsp;&nbsp; ${chk(String(doc.FourMChange).toUpperCase() === 'NOT_RELATED')} ไม่เกี่ยวข้อง</div>
+          ${impactItems.length ? `<div class="dar-span2"><span class="dar-l">การประเมินผลกระทบ :</span> ${impactItems.map(function (it) { return '☑ ' + dEsc(it); }).join('&nbsp;&nbsp; ')}</div>` : ''}
           <div class="dar-span2 dar-comment"><span class="dar-l">เหตุผล / ข้อคิดเห็น :</span> ${dEsc(comment)}${cancelled && cancelReason ? ' <b>(ไม่อนุมัติ: ' + dEsc(cancelReason) + ')</b>' : ''}</div>
         </div>
         <div class="dar-sigs">
