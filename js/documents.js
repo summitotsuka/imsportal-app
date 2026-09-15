@@ -244,16 +244,19 @@ const DocumentsPage = {
     } else if (this._tab === 'controlledCopies') {
       const role = (function () { try { return String((AUTH.getUser() || {}).roleId || ''); } catch (e) { return ''; } })();
       const canDestroy = ['R001', 'R002', 'R003'].indexOf(role) !== -1;
-      box.innerHTML = `<table class="dc-tbl"><thead><tr><th>Copy No.</th><th>Doc No.</th><th>Rev</th><th>Holder</th><th>Status</th><th>Issued</th><th></th></tr></thead><tbody>${items.map(cpy => `
-        <tr>
+      box.innerHTML = `<table class="dc-tbl"><thead><tr><th>Copy No.</th><th>Doc No.</th><th>Rev</th><th>Holder</th><th>Status</th><th>Issued</th><th></th></tr></thead><tbody>${items.map(cpy => {
+        const active = String(cpy.Status).toUpperCase() === 'ACTIVE';
+        return `<tr class="dc-row" data-req="${dEsc(cpy.RequestID)}">
           <td><span class="dc-id">${dEsc(cpy.CopyNo)}</span></td>
           <td>${dEsc(cpy.DocNumber)}</td><td>${dEsc(cpy.Revision)}</td>
           <td>${dEsc(cpy.HolderName)} <span class="dc-faint">(${dEsc(cpy.HolderType)})</span></td>
-          <td>${String(cpy.Status).toUpperCase() === 'ACTIVE' ? '<span class="dc-badge dc-b-ok">Active</span>' : '<span class="dc-badge dc-b-cancel">Destroyed</span>'}</td>
+          <td>${active ? '<span class="dc-badge dc-b-ok">Active</span>' : '<span class="dc-badge dc-b-cancel">Destroyed</span>'}</td>
           <td class="dc-faint" style="white-space:nowrap">${dcDate(cpy.IssuedDate)}</td>
-          <td>${(canDestroy && String(cpy.Status).toUpperCase() === 'ACTIVE') ? `<button class="dc-btn dc-danger" data-destroy="${dEsc(cpy.CopyID)}" type="button" style="padding:4px 10px;font-size:12px">Destroy</button>` : ''}</td>
-        </tr>`).join('')}</tbody></table>`;
-      box.querySelectorAll('[data-destroy]').forEach(b => b.addEventListener('click', () => this.destroyCopyModal(b.dataset.destroy)));
+          <td style="white-space:nowrap">${active ? `<button class="dc-btn dc-ghost" data-cpdl="${dEsc(cpy.CopyNo)}" data-cpdoc="${dEsc(cpy.DocumentID)}" data-cphold="${dEsc(cpy.HolderName)}" type="button" style="padding:4px 10px;font-size:12px">⬇ PDF</button>${canDestroy ? ` <button class="dc-btn dc-danger" data-destroy="${dEsc(cpy.CopyID)}" type="button" style="padding:4px 10px;font-size:12px">Destroy</button>` : ''}` : ''}</td>
+        </tr>`; }).join('')}</tbody></table>`;
+      box.querySelectorAll('[data-destroy]').forEach(b => b.addEventListener('click', (ev) => { ev.stopPropagation(); this.destroyCopyModal(b.dataset.destroy); }));
+      box.querySelectorAll('[data-cpdl]').forEach(b => b.addEventListener('click', (ev) => { ev.stopPropagation(); this.downloadControlledCopy(b.dataset.cpdoc, b.dataset.cpdl, b.dataset.cphold); }));
+      box.querySelectorAll('[data-req]').forEach(r => r.addEventListener('click', () => this.openCopyDetail(r.dataset.req)));
       return;
     } else {
       box.innerHTML = `<table class="dc-tbl"><thead><tr><th>Doc No.</th><th>Title / Copy</th><th>Dept</th><th>Status</th><th>Created</th></tr></thead><tbody>${items.map(d => d._copy ? this.copyRowHtml(d) : this.rowHtml(d)).join('')}</tbody></table>`;
