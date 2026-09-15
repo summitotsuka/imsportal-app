@@ -812,6 +812,21 @@ const DocumentsPage = {
     } catch (ex) { this.toast((ex && ex.message) || 'Download failed'); }
   },
 
+  /** Download the source PDF stamped as a CONTROLLED COPY for a specific issued copy. */
+  async downloadControlledCopy(documentId, copyNo, holder) {
+    try {
+      const r = await API.get('downloadDocumentFile', { token: this.token(), documentId });
+      const isPdf = String(r.mimeType || '').toLowerCase().indexOf('pdf') !== -1 || String(r.fileName || '').toLowerCase().endsWith('.pdf');
+      if (!isPdf || !window.PDFLib) { this.toast('สำเนาควบคุมพิมพ์ได้เฉพาะไฟล์ PDF'); return; }
+      const blob = await this.watermarkPdf(r.base64, r, { controlled: true, copyNo: copyNo, holder: holder });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = (r.documentNo || 'document') + '_Rev' + (r.revisionNo || '') + '_' + copyNo + '_CONTROLLED.pdf';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (ex) { this.toast((ex && ex.message) || 'ดาวน์โหลดไม่สำเร็จ'); }
+  },
+
   /** Returns a Blob for the file — a PDF gets an UNCONTROLLED-COPY watermark (frontend, pdf-lib). */
   async fileBlob(r) {
     const isPdf = String(r.mimeType || '').toLowerCase().indexOf('pdf') !== -1 || String(r.fileName || '').toLowerCase().endsWith('.pdf');
@@ -822,7 +837,9 @@ const DocumentsPage = {
     return { blob: this.b64ToBlob(r.base64, r.mimeType), watermarked: false };
   },
 
-  async watermarkPdf(base64, meta) {
+  async watermarkPdf(base64, meta, opts) {
+    opts = opts || {};
+    const controlled = !!opts.controlled;
     const P = window.PDFLib;
     const clean = String(base64 || '').replace(/^data:application\/pdf;base64,/, '');
     const bin = atob(clean); const bytes = new Uint8Array(bin.length);
@@ -834,18 +851,24 @@ const DocumentsPage = {
     const docNo = clip(meta.documentNo) || 'UNKNOWN', rev = clip(meta.revisionNo) || '-';
     const emp = clip(meta.downloadedByEmployeeId) || 'UNKNOWN', dt = clip(meta.downloadedAt) || '';
     const newRev = clip(meta.newRevInProgress) || '';
-    const wm = 'UNCONTROLLED COPY';
+    const wm = controlled ? 'CONTROLLED COPY' : 'UNCONTROLLED COPY';
+    const wmColor = controlled ? P.rgb(0.10, 0.35, 0.65) : P.rgb(0.65, 0.08, 0.08);
+    const copyNo = clip(opts.copyNo), holder = clip(opts.holder);
     const pages = pdf.getPages();
     pages.forEach((page, i) => {
       const w = page.getSize().width, h = page.getSize().height;
       let size = Math.min(52, w / 8);
       while (size > 30 && bold.widthOfTextAtSize(wm, size) > w * 0.72) size -= 1;
       const tw = bold.widthOfTextAtSize(wm, size);
-      page.drawText(wm, { x: Math.max(24, (w - tw) / 2), y: h * 0.43, size: size, font: bold, color: P.rgb(0.65, 0.08, 0.08), opacity: 0.12, rotate: P.degrees(35) });
+      page.drawText(wm, { x: Math.max(24, (w - tw) / 2), y: h * 0.43, size: size, font: bold, color: wmColor, opacity: 0.12, rotate: P.degrees(35) });
       const margin = 22, fy = 13;
       page.drawLine({ start: { x: margin, y: fy + 17 }, end: { x: w - margin, y: fy + 17 }, thickness: 0.35, color: P.rgb(0.55, 0.55, 0.55), opacity: 0.55 });
-      const l1 = 'UNCONTROLLED COPY | ' + docNo + ' Rev.' + rev + ' | By ' + emp;
-      const l2 = 'Downloaded: ' + dt + ' | Page ' + (i + 1) + '/' + pages.length + (newRev ? ' | A new revision (Rev.' + newRev + ') is under approval' : '') + ' | Verify current revision in IMS before use';
+      const l1 = controlled
+        ? ('CONTROLLED COPY | ' + docNo + ' Rev.' + rev + ' | Copy ' + copyNo + ' | Holder: ' + holder)
+        : ('UNCONTROLLED COPY | ' + docNo + ' Rev.' + rev + ' | By ' + emp);
+      const l2 = controlled
+        ? ('Issued: ' + dt + ' | Page ' + (i + 1) + '/' + pages.length + (newRev ? ' | A new revision (Rev.' + newRev + ') is under approval' : '') + ' | This is a registered controlled copy')
+        : ('Downloaded: ' + dt + ' | Page ' + (i + 1) + '/' + pages.length + (newRev ? ' | A new revision (Rev.' + newRev + ') is under approval' : '') + ' | Verify current revision in IMS before use');
       page.drawText(l1, { x: margin, y: fy + 8, size: 7, font: bold, color: P.rgb(0.25, 0.25, 0.25), opacity: 0.75 });
       page.drawText(l2, { x: margin, y: fy, size: 6, font: reg, color: P.rgb(0.30, 0.30, 0.30), opacity: 0.68 });
     });
@@ -990,6 +1013,8 @@ const DocumentsPage = {
     document.getElementById('cpCancel').addEventListener('click', () => this.openDetail(doc.DocumentID));
     document.getElementById('cpSave').addEventListener('click', async () => {
       const err = document.getElementById('cpErr');
+      const sv = document.getElementById('cpSave'); sv.disabled = true; sv.textContent = 'Processing…';
+      const restore = () => { sv.disabled = false; sv.textContent = 'Create request (DRAFT)'; };
       const payload = {
         token: this.token(), documentId: doc.DocumentID,
         holderType: document.getElementById('cpType').value,
@@ -998,10 +1023,10 @@ const DocumentsPage = {
         quantity: parseInt(document.getElementById('cpQty').value, 10) || 0,
         purpose: document.getElementById('cpPurpose').value.trim()
       };
-      if (!payload.holderName) { err.innerHTML = '<div class="dc-err">กรุณาระบุผู้รับ</div>'; return; }
-      if (!payload.purpose) { err.innerHTML = '<div class="dc-err">กรุณาระบุวัตถุประสงค์</div>'; return; }
+      if (!payload.holderName) { restore(); err.innerHTML = '<div class="dc-err">กรุณาระบุผู้รับ</div>'; return; }
+      if (!payload.purpose) { restore(); err.innerHTML = '<div class="dc-err">กรุณาระบุวัตถุประสงค์</div>'; return; }
       try { const res = await API.post('createCopyRequest', payload); this.toast('สร้างใบขอสำเนาแล้ว (DRAFT)'); this.openCopyDetail(res.requestId); }
-      catch (ex) { err.innerHTML = `<div class="dc-err">${dEsc((ex && ex.message) || 'ล้มเหลว')}</div>`; }
+      catch (ex) { restore(); err.innerHTML = `<div class="dc-err">${dEsc((ex && ex.message) || 'ล้มเหลว')}</div>`; }
     });
   },
 
@@ -1023,7 +1048,7 @@ const DocumentsPage = {
   renderCopyDetail(req, copies, actions) {
     const c = document.getElementById('pageContent');
     const kv = (k, v) => `<div class="k">${k}</div><div>${v}</div>`;
-    const copyRows = copies.map(cp => `<tr><td><span class="dc-id">${dEsc(cp.CopyNo)}</span></td><td>${String(cp.Status).toUpperCase() === 'ACTIVE' ? '<span class="dc-badge dc-b-ok">Active</span>' : '<span class="dc-badge dc-b-cancel">Destroyed</span>'}</td><td class="dc-faint">${dEsc(cp.HolderName)}</td></tr>`).join('');
+    const copyRows = copies.map(cp => `<tr><td><span class="dc-id">${dEsc(cp.CopyNo)}</span></td><td>${String(cp.Status).toUpperCase() === 'ACTIVE' ? '<span class="dc-badge dc-b-ok">Active</span>' : '<span class="dc-badge dc-b-cancel">Destroyed</span>'}</td><td class="dc-faint">${dEsc(cp.HolderName)}</td><td>${String(cp.Status).toUpperCase() === 'ACTIVE' ? `<button class="dc-btn dc-ghost" data-cpdl="${dEsc(cp.CopyNo)}" data-cphold="${dEsc(cp.HolderName)}" type="button" style="padding:4px 10px;font-size:12px">⬇ PDF</button>` : ''}</td></tr>`).join('');
     const b = [];
     const btn = (a, l, cls) => `<button class="dc-btn ${cls}" data-cpact="${a}" type="button">${l}</button>`;
     if (actions.indexOf('submitCopy') !== -1) b.push(btn('submitCopy', 'Submit for review', 'dc-primary'));
@@ -1049,10 +1074,11 @@ const DocumentsPage = {
         </div>
       </div>
       ${b.length ? `<div class="dc-card"><h2 style="margin:0 0 12px;font-size:15px">Actions</h2><div class="dc-actbar">${b.join('')}</div><div id="cpActErr"></div></div>` : ''}
-      ${copyRows ? `<div class="dc-card"><h2 style="margin:0 0 12px;font-size:15px">Issued copies</h2><table class="dc-tbl"><thead><tr><th>Copy No.</th><th>Status</th><th>Holder</th></tr></thead><tbody>${copyRows}</tbody></table></div>` : ''}
+      ${copyRows ? `<div class="dc-card"><h2 style="margin:0 0 12px;font-size:15px">Issued copies</h2><p class="dc-faint" style="margin:0 0 10px;font-size:12px">ดาวน์โหลดสำเนาควบคุม (ตรา CONTROLLED COPY + เลขสำเนา) เพื่อพิมพ์ส่งมอบ</p><table class="dc-tbl"><thead><tr><th>Copy No.</th><th>Status</th><th>Holder</th><th></th></tr></thead><tbody>${copyRows}</tbody></table></div>` : ''}
       </div><div class="dc-toast" id="dcToast"></div>`;
     document.getElementById('dcBack').addEventListener('click', () => this.load());
     this.wireCopyActions(req);
+    document.querySelectorAll('#pageContent [data-cpdl]').forEach(b => b.addEventListener('click', () => this.downloadControlledCopy(req.DocumentID, b.dataset.cpdl, b.dataset.cphold)));
   },
 
   wireCopyActions(req) {
@@ -1073,9 +1099,10 @@ const DocumentsPage = {
   },
 
   async doCopy(action, payload, okMsg, btn) {
-    if (btn) btn.disabled = true;
+    let prev = '';
+    if (btn) { prev = btn.textContent; btn.disabled = true; btn.textContent = 'Processing…'; }
     try { await API.post(action, Object.assign({ token: this.token() }, payload)); this.toast(okMsg); this.openCopyDetail(payload.requestId); }
-    catch (ex) { const e = document.getElementById('cpActErr'); if (e) e.innerHTML = `<div class="dc-err">${dEsc((ex && ex.message) || 'ล้มเหลว')}</div>`; if (btn) btn.disabled = false; }
+    catch (ex) { const e = document.getElementById('cpActErr'); if (e) e.innerHTML = `<div class="dc-err">${dEsc((ex && ex.message) || 'ล้มเหลว')}</div>`; if (btn) { btn.disabled = false; btn.textContent = prev; } }
   },
   runCopy(action, payload, okMsg, done, requestId) {
     API.post(action, Object.assign({ token: this.token() }, payload))
