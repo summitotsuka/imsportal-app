@@ -580,11 +580,11 @@ const DocumentsPage = {
           <ul class="dc-tl">${tl || '<li><span class="dot"></span><div class="meta">No history</div></li>'}</ul>
         </div>
 
-        ${(this._actions || []).indexOf('revise') !== -1 ? `
+        ${((this._actions || []).indexOf('revise') !== -1 || (this._actions || []).indexOf('obsolete') !== -1 || (this._actions || []).indexOf('controlledCopy') !== -1) ? `
         <div class="dc-card">
           <h2 style="margin:0 0 12px;font-size:15px">Document lifecycle</h2>
           <div class="dc-actbar">
-            <button class="dc-btn dc-primary" id="dcRevise" type="button">Revise (new revision)</button>
+            ${(this._actions || []).indexOf('revise') !== -1 ? '<button class="dc-btn dc-primary" id="dcRevise" type="button">Revise (new revision)</button>' : ''}
             ${(this._actions || []).indexOf('controlledCopy') !== -1 ? '<button class="dc-btn dc-primary" id="dcCopyReq" type="button">Controlled Copy</button>' : '<button class="dc-btn dc-ghost" type="button" disabled title="เร็ว ๆ นี้">Controlled Copy</button>'}
             ${(this._actions || []).indexOf('obsolete') !== -1 ? '<button class="dc-btn dc-danger" id="dcObsolete" type="button">Obsolete (withdraw document)</button>' : '<button class="dc-btn dc-ghost" type="button" disabled title="เร็ว ๆ นี้">Obsolete</button>'}
             <button class="dc-btn dc-ghost" type="button" disabled title="เร็ว ๆ นี้">Destroy Copy</button>
