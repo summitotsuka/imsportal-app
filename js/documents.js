@@ -747,18 +747,62 @@ const DocumentsPage = {
   async download(documentId) {
     try {
       const r = await API.get('downloadDocumentFile', { token: this.token(), documentId });
-      const url = URL.createObjectURL(this.b64ToBlob(r.base64, r.mimeType));
+      const { blob, watermarked } = await this.fileBlob(r);
+      const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url; a.download = r.fileName || 'document';
+      a.href = url;
+      a.download = watermarked ? ((r.documentNo || 'document') + '_Rev' + (r.revisionNo || '') + '_UNCONTROLLED.pdf') : (r.fileName || 'document');
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
+      if (watermarked) this.toast('ดาวน์โหลดเป็น UNCONTROLLED COPY — ตรวจสอบฉบับล่าสุดในระบบก่อนใช้');
     } catch (ex) { this.toast((ex && ex.message) || 'Download failed'); }
+  },
+
+  /** Returns a Blob for the file — a PDF gets an UNCONTROLLED-COPY watermark (frontend, pdf-lib). */
+  async fileBlob(r) {
+    const isPdf = String(r.mimeType || '').toLowerCase().indexOf('pdf') !== -1 || String(r.fileName || '').toLowerCase().endsWith('.pdf');
+    if (isPdf && window.PDFLib) {
+      try { return { blob: await this.watermarkPdf(r.base64, r), watermarked: true }; }
+      catch (e) { /* fall back to the original file if watermarking fails */ }
+    }
+    return { blob: this.b64ToBlob(r.base64, r.mimeType), watermarked: false };
+  },
+
+  async watermarkPdf(base64, meta) {
+    const P = window.PDFLib;
+    const clean = String(base64 || '').replace(/^data:application\/pdf;base64,/, '');
+    const bin = atob(clean); const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const pdf = await P.PDFDocument.load(bytes, { updateMetadata: false });
+    const bold = await pdf.embedFont(P.StandardFonts.HelveticaBold);
+    const reg = await pdf.embedFont(P.StandardFonts.Helvetica);
+    const clip = v => String(v == null ? '' : v).replace(/[\r\n\t]+/g, ' ').replace(/[^\x20-\x7E]/g, '').trim();
+    const docNo = clip(meta.documentNo) || 'UNKNOWN', rev = clip(meta.revisionNo) || '-';
+    const emp = clip(meta.downloadedByEmployeeId) || 'UNKNOWN', dt = clip(meta.downloadedAt) || '';
+    const wm = 'UNCONTROLLED COPY';
+    const pages = pdf.getPages();
+    pages.forEach((page, i) => {
+      const w = page.getSize().width, h = page.getSize().height;
+      let size = Math.min(52, w / 8);
+      while (size > 30 && bold.widthOfTextAtSize(wm, size) > w * 0.72) size -= 1;
+      const tw = bold.widthOfTextAtSize(wm, size);
+      page.drawText(wm, { x: Math.max(24, (w - tw) / 2), y: h * 0.43, size: size, font: bold, color: P.rgb(0.65, 0.08, 0.08), opacity: 0.12, rotate: P.degrees(35) });
+      const margin = 22, fy = 13;
+      page.drawLine({ start: { x: margin, y: fy + 17 }, end: { x: w - margin, y: fy + 17 }, thickness: 0.35, color: P.rgb(0.55, 0.55, 0.55), opacity: 0.55 });
+      const l1 = 'UNCONTROLLED COPY | ' + docNo + ' Rev.' + rev + ' | By ' + emp;
+      const l2 = 'Downloaded: ' + dt + ' | Page ' + (i + 1) + '/' + pages.length + ' | Verify current revision in IMS before use';
+      page.drawText(l1, { x: margin, y: fy + 8, size: 7, font: bold, color: P.rgb(0.25, 0.25, 0.25), opacity: 0.75 });
+      page.drawText(l2, { x: margin, y: fy, size: 6, font: reg, color: P.rgb(0.30, 0.30, 0.30), opacity: 0.68 });
+    });
+    const out = await pdf.save({ useObjectStreams: true });
+    return new Blob([out], { type: 'application/pdf' });
   },
 
   async view(documentId) {
     try {
       const r = await API.get('downloadDocumentFile', { token: this.token(), documentId });
-      const url = URL.createObjectURL(this.b64ToBlob(r.base64, r.mimeType));
+      const { blob } = await this.fileBlob(r);
+      const url = URL.createObjectURL(blob);
       const w = window.open(url, '_blank');
       if (!w) this.toast('เบราว์เซอร์บล็อกป๊อปอัพ — อนุญาตแล้วลองใหม่');
       setTimeout(() => URL.revokeObjectURL(url), 60000);
