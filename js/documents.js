@@ -291,16 +291,17 @@ const DocumentsPage = {
       : `<p class="dc-faint" style="padding:4px 0 10px">No obsolete documents.</p>`;
     html += `<h2 style="margin:20px 0 10px;font-size:14px;color:#6b7280;text-transform:uppercase;letter-spacing:.03em">Copies to destroy <span class="dc-faint" style="text-transform:none;font-weight:400">— สำเนาของเอกสารที่ถูกยกเลิก/แก้ไข ต้องเรียกคืน+ทำลาย</span></h2>`;
     html += toDestroy.length
-      ? `<table class="dc-tbl"><thead><tr><th>Copy No.</th><th>Doc No.</th><th>Rev</th><th>Holder</th><th></th></tr></thead><tbody>${toDestroy.map(cpy => `<tr><td><span class="dc-id">${dEsc(cpy.CopyNo)}</span></td><td>${dEsc(cpy.DocNumber)}</td><td>${dEsc(cpy.Revision)}</td><td>${dEsc(cpy.HolderName)} <span class="dc-faint">(${dEsc(cpy.HolderType)})</span></td><td style="white-space:nowrap">${canDestroy ? `<button class="dc-btn dc-danger" data-destroy="${dEsc(cpy.CopyID)}" type="button" style="padding:4px 10px;font-size:12px">Destroy</button>` : ''}</td></tr>`).join('')}</tbody></table>`
+      ? `<table class="dc-tbl"><thead><tr><th>Copy No.</th><th>Doc No.</th><th>Rev</th><th>Holder</th><th></th></tr></thead><tbody>${toDestroy.map(cpy => `<tr class="dc-row" data-req="${dEsc(cpy.RequestID)}"><td><span class="dc-id">${dEsc(cpy.CopyNo)}</span></td><td>${dEsc(cpy.DocNumber)}</td><td>${dEsc(cpy.Revision)}</td><td>${dEsc(cpy.HolderName)} <span class="dc-faint">(${dEsc(cpy.HolderType)})</span></td><td style="white-space:nowrap">${canDestroy ? `<button class="dc-btn dc-danger" data-destroy="${dEsc(cpy.CopyID)}" type="button" style="padding:4px 10px;font-size:12px">Destroy</button>` : ''}</td></tr>`).join('')}</tbody></table>`
       : `<p class="dc-faint" style="padding:4px 0">No copies awaiting destruction.</p>`;
     const destroyed = ((this.data && this.data.inbox) || {}).destroyedCopies || [];
     if (destroyed.length) {
       html += `<h2 style="margin:20px 0 10px;font-size:14px;color:#6b7280;text-transform:uppercase;letter-spacing:.03em">Destroyed copies <span class="dc-faint" style="text-transform:none;font-weight:400">— สำเนาที่ทำลายแล้ว</span></h2>`;
-      html += `<table class="dc-tbl"><thead><tr><th>Copy No.</th><th>Doc No.</th><th>Rev</th><th>Holder</th><th>Destroyed</th><th>By</th></tr></thead><tbody>${destroyed.map(cpy => `<tr><td><span class="dc-id">${dEsc(cpy.CopyNo)}</span></td><td>${dEsc(cpy.DocNumber)}</td><td>${dEsc(cpy.Revision)}</td><td>${dEsc(cpy.HolderName)}</td><td class="dc-faint" style="white-space:nowrap">${dcDate(cpy.DestroyedDate)}</td><td class="dc-faint">${dEsc(cpy.DestroyedByName)}</td></tr>`).join('')}</tbody></table>`;
+      html += `<table class="dc-tbl"><thead><tr><th>Copy No.</th><th>Doc No.</th><th>Rev</th><th>Holder</th><th>Destroyed</th><th>By</th></tr></thead><tbody>${destroyed.map(cpy => `<tr class="dc-row" data-req="${dEsc(cpy.RequestID)}"><td><span class="dc-id">${dEsc(cpy.CopyNo)}</span></td><td>${dEsc(cpy.DocNumber)}</td><td>${dEsc(cpy.Revision)}</td><td>${dEsc(cpy.HolderName)}</td><td class="dc-faint" style="white-space:nowrap">${dcDate(cpy.DestroyedDate)}</td><td class="dc-faint">${dEsc(cpy.DestroyedByName)}</td></tr>`).join('')}</tbody></table>`;
     }
     box.innerHTML = html;
     box.querySelectorAll('[data-doc]').forEach(r => r.addEventListener('click', () => this.openDetail(r.dataset.doc)));
-    box.querySelectorAll('[data-destroy]').forEach(b => b.addEventListener('click', () => this.destroyCopyModal(b.dataset.destroy)));
+    box.querySelectorAll('[data-destroy]').forEach(b => b.addEventListener('click', (ev) => { ev.stopPropagation(); this.destroyCopyModal(b.dataset.destroy); }));
+    box.querySelectorAll('[data-req]').forEach(r => r.addEventListener('click', () => this.openCopyDetail(r.dataset.req)));
   },
 
   rowHtml(d) {
