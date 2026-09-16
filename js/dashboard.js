@@ -129,6 +129,9 @@ async function loadDcReports() {
   const content = document.getElementById('pageContent');
   injectDashCss();
   await dashDepts();
+  const ymd = d => { const p = n => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); };
+  const today = new Date();
+  const from = new Date(); from.setMonth(from.getMonth() - 3);
   content.innerHTML = `<div class="dash-wrap">
     <h1 class="dash-h1">Document Control Reports</h1>
     <div class="dash-card">
@@ -139,6 +142,11 @@ async function loadDcReports() {
           <option value="acknowledge">Acknowledge Report</option>
           <option value="copies">Controlled Copies Report</option>
         </select>
+        <label style="align-self:center;font-size:13px;font-weight:600;margin-left:8px">Date:</label>
+        <select id="rpDateType" class="dash-in"></select>
+        <input type="date" id="rpFrom" class="dash-in" value="${ymd(from)}">
+        <span style="align-self:center">~</span>
+        <input type="date" id="rpTo" class="dash-in" value="${ymd(today)}">
       </div>
       <div id="rpFilters" class="dash-filters"></div>
       <div id="rpResult"></div>
@@ -153,6 +161,11 @@ function renderReportFilters() {
   const fbox = document.getElementById('rpFilters');
   const depts = window._dashDepts || [];
   const deptOpts = `<option value="">ทุกฝ่าย</option>${depts.map(x => `<option value="${dEscD(x.departmentId)}">${dEscD(x.name)}</option>`).join('')}`;
+
+  const dtSel = document.getElementById('rpDateType');
+  const DT = { documents: [['CREATED', 'Created Date'], ['EFFECTIVE', 'Effective Date']], acknowledge: [['ACKNOWLEDGED', 'Acknowledged Date']], copies: [['ISSUED', 'Issued Date'], ['DESTROYED', 'Destroyed Date']] };
+  dtSel.innerHTML = (DT[kind] || []).map(o => `<option value="${o[0]}">${o[1]}</option>`).join('');
+
   let statusOpts = '', typeSel = '', searchPh = 'ค้นหา เลข/ชื่อเอกสาร';
   if (kind === 'documents') {
     typeSel = `<select id="rpType" class="dash-in"><option value="">ทุกประเภท</option>${Object.keys(DASH_TYPE_LABEL).map(t => `<option value="${t}">${DASH_TYPE_LABEL[t]}</option>`).join('')}</select>`;
@@ -171,7 +184,7 @@ function renderReportFilters() {
   document.getElementById('rpApply').addEventListener('click', () => loadReport(kind));
   document.getElementById('rpCsv').addEventListener('click', () => exportReport(kind));
   document.getElementById('rpSearch').addEventListener('keydown', e => { if (e.key === 'Enter') loadReport(kind); });
-  loadReport(kind);
+  document.getElementById('rpResult').innerHTML = '';   // wait for the user to press "กรอง"
 }
 
 async function loadReport(kind) {
@@ -185,7 +198,10 @@ async function loadReport(kind) {
       type: (document.getElementById('rpType') || {}).value || '',
       departmentId: (document.getElementById('rpDept') || {}).value || '',
       status: (document.getElementById('rpStatus') || {}).value || '',
-      search: (document.getElementById('rpSearch') || {}).value || ''
+      search: (document.getElementById('rpSearch') || {}).value || '',
+      dateType: (document.getElementById('rpDateType') || {}).value || '',
+      dateFrom: (document.getElementById('rpFrom') || {}).value || '',
+      dateTo: (document.getElementById('rpTo') || {}).value || ''
     };
     const r = await API.get(def.endpoint, params);
     window._dashReportRows = r.rows || [];
