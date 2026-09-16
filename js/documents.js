@@ -165,6 +165,7 @@ const DocumentsPage = {
         ib.forApproval = (ib.forApproval || []).concat(ci.forApproval || []);
         ib.qmsReview = (ib.qmsReview || []).concat(ci.qmsReview || []);
         ib.controlledCopies = ci.register || [];
+        ib.copiesToDestroy = ci.toDestroy || [];
         const cc = this.data.counts || (this.data.counts = {});
         cc.drafts = (cc.drafts || 0) + (ci.inProgress || []).length;
         cc.forApproval = (cc.forApproval || 0) + (ci.forApproval || []).length;
@@ -213,6 +214,7 @@ const DocumentsPage = {
   renderList() {
     const box = document.getElementById('dcList');
     const items = ((this.data && this.data.inbox) || {})[this._tab] || [];
+    if (this._tab === 'obsolete') { this.renderObsoleteTab(box, items); return; }
     if (!items.length) { box.innerHTML = `<p class="dc-faint" style="padding:6px">Nothing here.</p>`; return; }
 
     if (this._tab === 'acknowledge') {
@@ -250,7 +252,7 @@ const DocumentsPage = {
           <td><span class="dc-id">${dEsc(cpy.CopyNo)}</span></td>
           <td>${dEsc(cpy.DocNumber)}</td><td>${dEsc(cpy.Revision)}</td>
           <td>${dEsc(cpy.HolderName)} <span class="dc-faint">(${dEsc(cpy.HolderType)})</span></td>
-          <td>${active ? '<span class="dc-badge dc-b-ok">Active</span>' : '<span class="dc-badge dc-b-cancel">Destroyed</span>'}</td>
+          <td>${active ? '<span class="dc-badge dc-b-ok">Active</span>' : '<span class="dc-badge dc-b-cancel">Destroyed</span>'}${cpy.needsDestroy ? ' <span class="dc-badge dc-b-warn" style="font-size:10px">⚠ ต้องทำลาย</span>' : ''}</td>
           <td class="dc-faint" style="white-space:nowrap">${dcDate(cpy.IssuedDate)}</td>
           <td style="white-space:nowrap">${active ? `<button class="dc-btn dc-ghost" data-cpdl="${dEsc(cpy.CopyNo)}" data-cpdoc="${dEsc(cpy.DocumentID)}" data-cphold="${dEsc(cpy.HolderName)}" type="button" style="padding:4px 10px;font-size:12px">⬇ PDF</button>${canDestroy ? ` <button class="dc-btn dc-danger" data-destroy="${dEsc(cpy.CopyID)}" type="button" style="padding:4px 10px;font-size:12px">Destroy</button>` : ''}` : ''}</td>
         </tr>`; }).join('')}</tbody></table>`;
@@ -275,6 +277,24 @@ const DocumentsPage = {
       <td>${dcCopyBadge(d.Status)}</td>
       <td class="dc-faint" style="white-space:nowrap">${dcDate(d.CreatedDate)}</td>
     </tr>`;
+  },
+
+  renderObsoleteTab(box, docs) {
+    const role = (function () { try { return String((AUTH.getUser() || {}).roleId || ''); } catch (e) { return ''; } })();
+    const canDestroy = ['R001', 'R002', 'R003'].indexOf(role) !== -1;
+    const toDestroy = ((this.data && this.data.inbox) || {}).copiesToDestroy || [];
+    let html = '';
+    html += `<h2 style="margin:2px 0 10px;font-size:14px;color:#6b7280;text-transform:uppercase;letter-spacing:.03em">Obsolete documents</h2>`;
+    html += docs.length
+      ? `<table class="dc-tbl"><thead><tr><th>Doc No.</th><th>Title</th><th>Dept</th><th>Status</th><th>Updated</th></tr></thead><tbody>${docs.map(d => `<tr class="dc-row" data-doc="${dEsc(d.DocumentID)}"><td><span class="dc-id">${dEsc(d.DocNumber)}</span> <span class="dc-faint">RV${dEsc(d.Revision)}</span></td><td>${dEsc(d.Title)}</td><td>${dEsc(this.deptName(d.DepartmentID))}</td><td>${dcBadge(d.Status)}</td><td class="dc-faint" style="white-space:nowrap">${dcDate(d.UpdatedDate)}</td></tr>`).join('')}</tbody></table>`
+      : `<p class="dc-faint" style="padding:4px 0 10px">No obsolete documents.</p>`;
+    html += `<h2 style="margin:20px 0 10px;font-size:14px;color:#6b7280;text-transform:uppercase;letter-spacing:.03em">Copies to destroy <span class="dc-faint" style="text-transform:none;font-weight:400">— สำเนาของเอกสารที่ถูกยกเลิก/แก้ไข ต้องเรียกคืน+ทำลาย</span></h2>`;
+    html += toDestroy.length
+      ? `<table class="dc-tbl"><thead><tr><th>Copy No.</th><th>Doc No.</th><th>Rev</th><th>Holder</th><th></th></tr></thead><tbody>${toDestroy.map(cpy => `<tr><td><span class="dc-id">${dEsc(cpy.CopyNo)}</span></td><td>${dEsc(cpy.DocNumber)}</td><td>${dEsc(cpy.Revision)}</td><td>${dEsc(cpy.HolderName)} <span class="dc-faint">(${dEsc(cpy.HolderType)})</span></td><td style="white-space:nowrap">${canDestroy ? `<button class="dc-btn dc-danger" data-destroy="${dEsc(cpy.CopyID)}" type="button" style="padding:4px 10px;font-size:12px">Destroy</button>` : ''}</td></tr>`).join('')}</tbody></table>`
+      : `<p class="dc-faint" style="padding:4px 0">No copies awaiting destruction.</p>`;
+    box.innerHTML = html;
+    box.querySelectorAll('[data-doc]').forEach(r => r.addEventListener('click', () => this.openDetail(r.dataset.doc)));
+    box.querySelectorAll('[data-destroy]').forEach(b => b.addEventListener('click', () => this.destroyCopyModal(b.dataset.destroy)));
   },
 
   rowHtml(d) {
@@ -994,32 +1014,34 @@ const DocumentsPage = {
   },
 
   /* ---------------- Controlled Copy ---------------- */
-  openCopyForm(doc, newRev) {
+  openCopyForm(doc, newRev, req) {
+    const editing = !!req;
     this.injectCss();
     const depts = Object.keys(this.deptMap).map(id => `<option value="${dEsc(id)}">${dEsc(this.deptMap[id])}</option>`).join('');
     const c = document.getElementById('pageContent');
     c.innerHTML = `<div class="dc-wrap"><button class="dc-back" id="dcBack">← Back</button>
       <div class="dc-card">
-        <h1 style="margin:0 0 4px;font-size:20px">Request Controlled Copy</h1>
+        <h1 style="margin:0 0 4px;font-size:20px">${editing ? 'Edit Copy Request' : 'Request Controlled Copy'}</h1>
         <p class="dc-muted" style="margin:0 0 16px">${dEsc(doc.DocNumber)} Rev.${dEsc(doc.Revision)} — ${dEsc(doc.Title)}</p>
         ${newRev ? `<div class="dc-card" style="border-left:3px solid #d97706;background:#fffbeb;margin-bottom:14px"><b>⚠ A new revision is currently under approval</b> (Rev.${dEsc(newRev)}) — สำเนานี้จะเป็นฉบับ Rev.${dEsc(doc.Revision)}</div>` : ''}
         <div class="dc-field"><label>Recipient type <span class="dc-req">*</span></label>
-          <select class="dc-in" id="cpType"><option value="DEPARTMENT">Department (ภายใน)</option><option value="EXTERNAL">External (ลูกค้า/supplier/auditor)</option><option value="OTHER">Other</option></select></div>
-        <div class="dc-field"><label>Recipient / holder <span class="dc-req">*</span></label><input class="dc-in" id="cpHolder" placeholder="เช่น บ.ABC / คุณสมชาย / จุดผลิต line 3"></div>
-        <div class="dc-field"><label>Requested via department</label><select class="dc-in" id="cpVia"><option value="">—</option>${depts}</select></div>
-        <div class="dc-field"><label>Quantity <span class="dc-req">*</span></label><input class="dc-in" id="cpQty" type="number" min="1" max="99" value="1"></div>
-        <div class="dc-field"><label>Purpose <span class="dc-req">*</span></label><textarea class="dc-in" id="cpPurpose" rows="3" placeholder="วัตถุประสงค์ของการขอสำเนา"></textarea></div>
+          <select class="dc-in" id="cpType">${[['DEPARTMENT','Department (ภายใน)'],['EXTERNAL','External (ลูกค้า/supplier/auditor)'],['OTHER','Other']].map(o=>`<option value="${o[0]}" ${editing && String(req.HolderType).toUpperCase()===o[0]?'selected':''}>${o[1]}</option>`).join('')}</select></div>
+        <div class="dc-field"><label>Recipient / holder <span class="dc-req">*</span></label><input class="dc-in" id="cpHolder" placeholder="เช่น บ.ABC / คุณสมชาย / จุดผลิต line 3" value="${editing ? dEsc(req.HolderName) : ''}"></div>
+        <div class="dc-field"><label>Requested via department</label><select class="dc-in" id="cpVia"><option value="">—</option>${Object.keys(this.deptMap).map(id=>`<option value="${dEsc(id)}" ${editing && String(req.ViaDepartment).trim()===String(id).trim()?'selected':''}>${dEsc(this.deptMap[id])}</option>`).join('')}</select></div>
+        <div class="dc-field"><label>Quantity <span class="dc-req">*</span></label><input class="dc-in" id="cpQty" type="number" min="1" max="99" value="${editing ? dEsc(req.Quantity) : '1'}"></div>
+        <div class="dc-field"><label>Purpose <span class="dc-req">*</span></label><textarea class="dc-in" id="cpPurpose" rows="3" placeholder="วัตถุประสงค์ของการขอสำเนา">${editing ? dEsc(req.Purpose) : ''}</textarea></div>
         <div id="cpErr"></div>
-        <div class="dc-bar"><button class="dc-btn dc-ghost" id="cpCancel" type="button">Cancel</button><button class="dc-btn dc-primary" id="cpSave" type="button">Create request (DRAFT)</button></div>
+        <div class="dc-bar"><button class="dc-btn dc-ghost" id="cpCancel" type="button">Cancel</button><button class="dc-btn dc-primary" id="cpSave" type="button">${editing ? 'Save changes' : 'Create request (DRAFT)'}</button></div>
       </div></div>`;
-    document.getElementById('dcBack').addEventListener('click', () => this.openDetail(doc.DocumentID));
-    document.getElementById('cpCancel').addEventListener('click', () => this.openDetail(doc.DocumentID));
+    const backTo = () => editing ? this.openCopyDetail(req.RequestID) : this.openDetail(doc.DocumentID);
+    document.getElementById('dcBack').addEventListener('click', backTo);
+    document.getElementById('cpCancel').addEventListener('click', backTo);
     document.getElementById('cpSave').addEventListener('click', async () => {
       const err = document.getElementById('cpErr');
       const sv = document.getElementById('cpSave'); sv.disabled = true; sv.textContent = 'Processing…';
-      const restore = () => { sv.disabled = false; sv.textContent = 'Create request (DRAFT)'; };
+      const restore = () => { sv.disabled = false; sv.textContent = editing ? 'Save changes' : 'Create request (DRAFT)'; };
       const payload = {
-        token: this.token(), documentId: doc.DocumentID,
+        token: this.token(), documentId: doc.DocumentID, requestId: editing ? req.RequestID : undefined,
         holderType: document.getElementById('cpType').value,
         holderName: document.getElementById('cpHolder').value.trim(),
         viaDepartment: document.getElementById('cpVia').value,
@@ -1028,7 +1050,10 @@ const DocumentsPage = {
       };
       if (!payload.holderName) { restore(); err.innerHTML = '<div class="dc-err">กรุณาระบุผู้รับ</div>'; return; }
       if (!payload.purpose) { restore(); err.innerHTML = '<div class="dc-err">กรุณาระบุวัตถุประสงค์</div>'; return; }
-      try { const res = await API.post('createCopyRequest', payload); this.toast('สร้างใบขอสำเนาแล้ว (DRAFT)'); this.openCopyDetail(res.requestId); }
+      try {
+        if (editing) { await API.post('updateCopyRequest', payload); this.toast('บันทึกการแก้ไขแล้ว'); this.openCopyDetail(req.RequestID); }
+        else { const res = await API.post('createCopyRequest', payload); this.toast('สร้างใบขอสำเนาแล้ว (DRAFT)'); this.openCopyDetail(res.requestId); }
+      }
       catch (ex) { restore(); err.innerHTML = `<div class="dc-err">${dEsc((ex && ex.message) || 'ล้มเหลว')}</div>`; }
     });
   },
@@ -1054,6 +1079,7 @@ const DocumentsPage = {
     const copyRows = copies.map(cp => `<tr><td><span class="dc-id">${dEsc(cp.CopyNo)}</span></td><td>${String(cp.Status).toUpperCase() === 'ACTIVE' ? '<span class="dc-badge dc-b-ok">Active</span>' : '<span class="dc-badge dc-b-cancel">Destroyed</span>'}</td><td class="dc-faint">${dEsc(cp.HolderName)}</td><td>${String(cp.Status).toUpperCase() === 'ACTIVE' ? `<button class="dc-btn dc-ghost" data-cpdl="${dEsc(cp.CopyNo)}" data-cphold="${dEsc(cp.HolderName)}" type="button" style="padding:4px 10px;font-size:12px">⬇ PDF</button>` : ''}</td></tr>`).join('');
     const b = [];
     const btn = (a, l, cls) => `<button class="dc-btn ${cls}" data-cpact="${a}" type="button">${l}</button>`;
+    if (actions.indexOf('editCopy') !== -1) b.push(btn('editCopy', 'Edit', 'dc-ghost'));
     if (actions.indexOf('submitCopy') !== -1) b.push(btn('submitCopy', 'Submit for review', 'dc-primary'));
     if (actions.indexOf('reviewCopy') !== -1) b.push(btn('reviewCopy', 'Verify', 'dc-primary'));
     if (actions.indexOf('approveCopy') !== -1) b.push(btn('approveCopy', 'Approve & issue', 'dc-primary'));
@@ -1089,7 +1115,8 @@ const DocumentsPage = {
     document.querySelectorAll('#pageContent [data-cpact]').forEach(btn => {
       btn.addEventListener('click', () => {
         const a = btn.dataset.cpact;
-        if (a === 'submitCopy') self.doCopy('submitCopyRequest', { requestId: id }, 'ส่งตรวจสอบแล้ว', btn);
+        if (a === 'editCopy') self.openCopyForm({ DocumentID: req.DocumentID, DocNumber: req.DocNumber, Revision: req.Revision, Title: '' }, '', req);
+        else if (a === 'submitCopy') self.doCopy('submitCopyRequest', { requestId: id }, 'ส่งตรวจสอบแล้ว', btn);
         else if (a === 'reviewCopy') self.copyReviewModal(req);
         else if (a === 'approveCopy') self.confirmModal({ title: 'Approve & issue copies', message: 'อนุมัติและออกสำเนาควบคุม (ออกเลขสำเนาจริง)', requireMaster: true, confirmLabel: 'Approve & issue',
           onConfirm: (v, done) => self.runCopy('approveCopyRequest', { requestId: id, masterPassword: v.master }, 'ออกสำเนาแล้ว', done, id) });
@@ -1138,7 +1165,7 @@ const DocumentsPage = {
 
   destroyCopyModal(copyId) {
     this.confirmModal({ title: 'Destroy controlled copy', message: 'บันทึกว่าสำเนานี้ถูกทำลายแล้ว (เรียกคืน+ทำลายจริงก่อน)', requireComment: true, commentLabel: 'remark (จำเป็น)', danger: true, confirmLabel: 'Mark destroyed',
-      onConfirm: (v, done) => API.post('destroyCopy', { token: this.token(), copyId: copyId, remark: v.comment }).then(() => { done(); this.toast('บันทึกการทำลายแล้ว'); this.load('controlledCopies'); }).catch(ex => done((ex && ex.message) || 'ล้มเหลว')) });
+      onConfirm: (v, done) => API.post('destroyCopy', { token: this.token(), copyId: copyId, remark: v.comment }).then(() => { done(); this.toast('บันทึกการทำลายแล้ว'); this.load(this._tab); }).catch(ex => done((ex && ex.message) || 'ล้มเหลว')) });
   },
 
   toast(msg) {
