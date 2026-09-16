@@ -76,6 +76,7 @@ const DocumentsPage = {
       const ctx = await API.get('getDocumentFormContext', { token: this.token() });
       (ctx.departments || []).forEach(d => { this.deptMap[d.departmentId] = d.name; });
       this.impactChecklist = ctx.impactChecklist || [];
+      this.importMode = !!ctx.importMode;
     } catch (e) { }
   },
   deptName(id) { return this.deptMap[String(id).trim()] || id; },
@@ -200,13 +201,18 @@ const DocumentsPage = {
         <div class="dc-ph" style="margin-bottom:14px">
           <div><h1 style="margin:0">Document Control</h1>
             <p class="dc-muted" style="margin:4px 0 0">Create, track and acknowledge controlled documents</p></div>
-          <button class="dc-btn dc-primary" id="dcNew" type="button">+ Create Document</button>
+          <div style="display:flex;gap:8px">
+            ${(this.importMode && ['R001','R002','R003'].indexOf(String((AUTH.getUser()||{}).roleId||''))!==-1) ? '<button class="dc-btn dc-ghost" id="dcImport" type="button">⬆ Import (migration)</button>' : ''}
+            <button class="dc-btn dc-primary" id="dcNew" type="button">+ Create Document</button>
+          </div>
         </div>
         <div class="dc-tabs">${tabs}</div>
         <div class="dc-card" id="dcList"></div>
       </div>
       <div class="dc-toast" id="dcToast"></div>`;
     document.getElementById('dcNew').addEventListener('click', () => this.openCreate());
+    const imp = document.getElementById('dcImport');
+    if (imp) imp.addEventListener('click', () => this.openImportForm());
     document.querySelectorAll('.dc-tabs [data-tab]').forEach(b =>
       b.addEventListener('click', () => this.load(b.dataset.tab)));
     this.renderList();
@@ -315,6 +321,57 @@ const DocumentsPage = {
   },
 
   /* ---------------- Create ---------------- */
+  openImportForm() {
+    this.injectCss();
+    const types = [['MANUAL', 'Manual'], ['PROCEDURE', 'Procedure'], ['WORK_INSTRUCTION', 'Work Instruction'], ['FORM', 'Form'], ['INTERNAL', 'Internal'], ['EXTERNAL', 'External']];
+    const deptOpts = Object.keys(this.deptMap).map(id => `<option value="${dEsc(id)}">${dEsc(this.deptMap[id])}</option>`).join('');
+    const checks = Object.keys(this.deptMap).map(id => `<label class="dc-chk"><input type="checkbox" class="imShare" value="${dEsc(id)}"> ${dEsc(this.deptMap[id])}</label>`).join('');
+    const c = document.getElementById('pageContent');
+    c.innerHTML = `<div class="dc-wrap"><button class="dc-back" id="dcBack">← Back</button>
+      <div class="dc-card">
+        <h1 style="margin:0 0 4px;font-size:20px">Import Document (migration)</h1>
+        <p class="dc-muted" style="margin:0 0 16px">นำเข้าเอกสารเดิมเป็น EFFECTIVE — ข้ามการตรวจเลข/Rev (แต่ห้ามซ้ำ) · ทุกฝ่ายรับทราบอัตโนมัติ</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="dc-field"><label>Document number <span class="dc-req">*</span></label><input class="dc-in" id="imNo" placeholder="เช่น FM-HR-007"></div>
+          <div class="dc-field"><label>Revision <span class="dc-req">*</span></label><input class="dc-in" id="imRev" value="00"></div>
+          <div class="dc-field"><label>Document type <span class="dc-req">*</span></label><select class="dc-in" id="imType">${types.map(t => `<option value="${t[0]}">${t[1]}</option>`).join('')}</select></div>
+          <div class="dc-field"><label>Owner department <span class="dc-req">*</span></label><select class="dc-in" id="imDept">${deptOpts}</select></div>
+          <div class="dc-field dc-span2"><label>Title <span class="dc-req">*</span></label><input class="dc-in" id="imTitle"></div>
+          <div class="dc-field"><label>Effective Date <span class="dc-req">*</span></label><input type="date" class="dc-in" id="imEff"></div>
+          <div class="dc-field"><label>Reason / note</label><input class="dc-in" id="imReason" placeholder="นำเข้าข้อมูลเดิม"></div>
+        </div>
+        <div class="dc-field"><label>Distribute copies to (shared departments)</label><div class="dc-checks">${checks}</div></div>
+        <div class="dc-field"><label>Attach file</label><input type="file" id="imFile" accept=".pdf,.doc,.docx,.xls,.xlsx"></div>
+        <div id="imErr"></div>
+        <div class="dc-bar"><button class="dc-btn dc-ghost" id="imCancel" type="button">Cancel</button><button class="dc-btn dc-primary" id="imSave" type="button">Import</button></div>
+      </div></div>`;
+    document.getElementById('dcBack').addEventListener('click', () => this.load());
+    document.getElementById('imCancel').addEventListener('click', () => this.load());
+    document.getElementById('imSave').addEventListener('click', () => this.submitImport());
+  },
+
+  async submitImport() {
+    const err = document.getElementById('imErr');
+    const btn = document.getElementById('imSave'); btn.disabled = true; btn.textContent = 'Processing…';
+    const restore = () => { btn.disabled = false; btn.textContent = 'Import'; };
+    const val = id => (document.getElementById(id) || {}).value || '';
+    const payload = {
+      token: this.token(), DocNumber: val('imNo').trim(), Revision: val('imRev').trim(),
+      DocumentType: val('imType'), DepartmentID: val('imDept'), Title: val('imTitle').trim(),
+      EffectiveDate: val('imEff'), Reason: val('imReason').trim(),
+      SharedDepartments: Array.from(document.querySelectorAll('.imShare:checked')).map(x => x.value)
+    };
+    if (!payload.DocNumber || !payload.Revision || !payload.Title) { restore(); err.innerHTML = '<div class="dc-err">กรุณากรอกเลขเอกสาร/Revision/ชื่อ</div>'; return; }
+    if (!payload.EffectiveDate) { restore(); err.innerHTML = '<div class="dc-err">กรุณาระบุวันบังคับใช้</div>'; return; }
+    try {
+      const f = document.getElementById('imFile').files[0];
+      if (f) { payload.file = await this.readFile(f); }
+      const res = await API.post('importDocument', payload);
+      this.toast('นำเข้าเอกสารแล้ว (EFFECTIVE)');
+      this.openDetail(res.documentId);
+    } catch (ex) { restore(); err.innerHTML = `<div class="dc-err">${dEsc((ex && ex.message) || 'ล้มเหลว')}</div>`; }
+  },
+
   async openCreate() {
     this.injectCss();
     const c = document.getElementById('pageContent');
