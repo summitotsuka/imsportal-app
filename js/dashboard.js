@@ -110,6 +110,21 @@ async function loadDcDashboard() {
 }
 
 /* ============ Reports (documents-reports) ============ */
+const REPORT_DEFS = {
+  documents: {
+    endpoint: 'getDocumentReport', name: 'All Documents',
+    cols: [['Doc No.', r => r.DocNumber, true], ['Rev', r => r.Revision], ['Title', r => r.Title], ['Type', r => DASH_TYPE_LABEL[r.DocumentType] || r.DocumentType], ['Dept', r => dashDeptName(r.DepartmentID)], ['Status', r => r.Status], ['Effective', r => dashDate(r.EffectiveDate)], ['Created by', r => r.CreatedByName]]
+  },
+  acknowledge: {
+    endpoint: 'getAcknowledgeReport', name: 'Acknowledge',
+    cols: [['Doc No.', r => r.DocNumber, true], ['Rev', r => r.Revision], ['Title', r => r.Title], ['Dept', r => dashDeptName(r.DepartmentID)], ['Status', r => r.Status], ['Acknowledged by', r => r.AcknowledgedByName || '—'], ['Ack date', r => r.AcknowledgedDate ? dashDate(r.AcknowledgedDate) : '—']]
+  },
+  copies: {
+    endpoint: 'getControlledCopyReport', name: 'Controlled Copies',
+    cols: [['Copy No.', r => r.CopyNo, true], ['Doc No.', r => r.DocNumber], ['Rev', r => r.Revision], ['Dept', r => dashDeptName(r.DepartmentID)], ['Holder', r => r.HolderName + ' (' + r.HolderType + ')'], ['Status', r => r.Status], ['Issued', r => dashDate(r.IssuedDate)], ['Destroyed', r => r.DestroyedDate ? (dashDate(r.DestroyedDate) + ' / ' + r.DestroyedByName) : '—']]
+  }
+};
+
 async function loadDcReports() {
   const content = document.getElementById('pageContent');
   injectDashCss();
@@ -126,7 +141,7 @@ async function loadDcReports() {
         </select>
       </div>
       <div id="rpFilters" class="dash-filters"></div>
-      <div id="rpResult"><p class="dash-faint" style="padding:8px">เลือกประเภทรายงานแล้วกด "กรอง"</p></div>
+      <div id="rpResult"></div>
     </div>
   </div>`;
   document.getElementById('rpKind').addEventListener('change', renderReportFilters);
@@ -138,27 +153,31 @@ function renderReportFilters() {
   const fbox = document.getElementById('rpFilters');
   const depts = window._dashDepts || [];
   const deptOpts = `<option value="">ทุกฝ่าย</option>${depts.map(x => `<option value="${dEscD(x.departmentId)}">${dEscD(x.name)}</option>`).join('')}`;
+  let statusOpts = '', typeSel = '', searchPh = 'ค้นหา เลข/ชื่อเอกสาร';
   if (kind === 'documents') {
-    fbox.innerHTML = `
-      <select id="rpType" class="dash-in"><option value="">ทุกประเภท</option>${Object.keys(DASH_TYPE_LABEL).map(t => `<option value="${t}">${DASH_TYPE_LABEL[t]}</option>`).join('')}</select>
-      <select id="rpDept" class="dash-in">${deptOpts}</select>
-      <select id="rpStatus" class="dash-in"><option value="">ทุกสถานะ</option>${DASH_STATUSES.map(s => `<option value="${s}">${s}</option>`).join('')}</select>
-      <input id="rpSearch" class="dash-in" placeholder="ค้นหา เลข/ชื่อเอกสาร" style="flex:1;min-width:160px">
-      <button id="rpApply" class="dash-btn">กรอง</button><button id="rpCsv" class="dash-btn dash-ghost">⬇ CSV</button>`;
+    typeSel = `<select id="rpType" class="dash-in"><option value="">ทุกประเภท</option>${Object.keys(DASH_TYPE_LABEL).map(t => `<option value="${t}">${DASH_TYPE_LABEL[t]}</option>`).join('')}</select>`;
+    statusOpts = `<option value="">ทุกสถานะ</option>${DASH_STATUSES.map(x => `<option value="${x}">${x}</option>`).join('')}`;
+  } else if (kind === 'acknowledge') {
+    statusOpts = `<option value="">ทุกสถานะ</option>${['PENDING', 'ACKNOWLEDGED', 'SUPERSEDED'].map(x => `<option value="${x}">${x}</option>`).join('')}`;
   } else {
-    fbox.innerHTML = `<span class="dash-faint" style="align-self:center">รายงานนี้จะเพิ่มในขั้นตอนถัดไป</span>`;
-    document.getElementById('rpResult').innerHTML = '';
-    return;
+    statusOpts = `<option value="">ทุกสถานะ</option>${['ACTIVE', 'DESTROYED'].map(x => `<option value="${x}">${x}</option>`).join('')}`;
+    searchPh = 'ค้นหา เลขเอกสาร/ผู้ถือ';
   }
-  const apply = document.getElementById('rpApply'); if (apply) apply.addEventListener('click', loadDocReport);
-  const csv = document.getElementById('rpCsv'); if (csv) csv.addEventListener('click', exportDocReportCsv);
-  const se = document.getElementById('rpSearch'); if (se) se.addEventListener('keydown', e => { if (e.key === 'Enter') loadDocReport(); });
-  loadDocReport();
+  fbox.innerHTML = `${typeSel}
+    <select id="rpDept" class="dash-in">${deptOpts}</select>
+    <select id="rpStatus" class="dash-in">${statusOpts}</select>
+    <input id="rpSearch" class="dash-in" placeholder="${searchPh}" style="flex:1;min-width:160px">
+    <button id="rpApply" class="dash-btn">กรอง</button><button id="rpCsv" class="dash-btn dash-ghost">⬇ CSV</button>`;
+  document.getElementById('rpApply').addEventListener('click', () => loadReport(kind));
+  document.getElementById('rpCsv').addEventListener('click', () => exportReport(kind));
+  document.getElementById('rpSearch').addEventListener('keydown', e => { if (e.key === 'Enter') loadReport(kind); });
+  loadReport(kind);
 }
 
-async function loadDocReport() {
+async function loadReport(kind) {
+  const def = REPORT_DEFS[kind];
   const box = document.getElementById('rpResult');
-  if (!box) return;
+  if (!box || !def) return;
   box.innerHTML = `<p class="dash-faint" style="padding:8px">Loading…</p>`;
   try {
     const params = {
@@ -168,40 +187,34 @@ async function loadDocReport() {
       status: (document.getElementById('rpStatus') || {}).value || '',
       search: (document.getElementById('rpSearch') || {}).value || ''
     };
-    const r = await API.get('getDocumentReport', params);
+    const r = await API.get(def.endpoint, params);
     window._dashReportRows = r.rows || [];
-    renderDocReport(box, r.rows || [], r.total || 0);
+    window._dashReportKind = kind;
+    renderReport(box, r.rows || [], r.total || 0, def);
   } catch (e) {
     box.innerHTML = `<p style="color:#b91c1c;padding:8px">${dEscD(e.message || 'โหลดรายงานไม่สำเร็จ')}</p>`;
   }
 }
 
-function renderDocReport(box, rows, total) {
-  if (!rows.length) { box.innerHTML = `<p class="dash-faint" style="padding:8px">ไม่พบเอกสารตามเงื่อนไข</p>`; return; }
-  box.innerHTML = `<div class="dash-faint" style="margin:0 0 8px;font-size:12px">พบ ${total} เอกสาร</div>
-    <div style="overflow-x:auto"><table class="dash-tbl"><thead><tr>
-      <th>Doc No.</th><th>Rev</th><th>Title</th><th>Type</th><th>Dept</th><th>Status</th><th>Effective</th><th>Created by</th></tr></thead>
-      <tbody>${rows.map(d => `<tr>
-        <td><b>${dEscD(d.DocNumber)}</b></td><td>${dEscD(d.Revision)}</td><td>${dEscD(d.Title)}</td>
-        <td>${dEscD(DASH_TYPE_LABEL[d.DocumentType] || d.DocumentType)}</td><td>${dEscD(dashDeptName(d.DepartmentID))}</td>
-        <td>${dEscD(d.Status)}</td><td>${dashDate(d.EffectiveDate)}</td><td>${dEscD(d.CreatedByName)}</td>
-      </tr>`).join('')}</tbody></table></div>`;
+function renderReport(box, rows, total, def) {
+  if (!rows.length) { box.innerHTML = `<p class="dash-faint" style="padding:8px">ไม่พบข้อมูลตามเงื่อนไข</p>`; return; }
+  const head = def.cols.map(c => `<th>${dEscD(c[0])}</th>`).join('');
+  const body = rows.map(r => `<tr>${def.cols.map(c => `<td>${c[2] ? '<b>' + dEscD(c[1](r)) + '</b>' : dEscD(c[1](r))}</td>`).join('')}</tr>`).join('');
+  box.innerHTML = `<div class="dash-faint" style="margin:0 0 8px;font-size:12px">พบ ${total} รายการ</div>
+    <div style="overflow-x:auto"><table class="dash-tbl"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
 
-function exportDocReportCsv() {
+function exportReport(kind) {
+  const def = REPORT_DEFS[kind];
   const rows = window._dashReportRows || [];
-  if (!rows.length) { alert('ไม่มีข้อมูลให้ export'); return; }
-  const head = ['Doc No.', 'Revision', 'Title', 'Type', 'Department', 'Status', 'Effective', 'Created by', 'Created date'];
+  if (!def || !rows.length) { alert('ไม่มีข้อมูลให้ export'); return; }
   const esc = v => { const s = String(v == null ? '' : v).replace(/"/g, '""'); return /[",\n]/.test(s) ? '"' + s + '"' : s; };
-  const lines = [head.join(',')];
-  rows.forEach(d => lines.push([
-    d.DocNumber, d.Revision, d.Title, (DASH_TYPE_LABEL[d.DocumentType] || d.DocumentType),
-    dashDeptName(d.DepartmentID), d.Status, dashDate(d.EffectiveDate), d.CreatedByName, dashDate(d.CreatedDate)
-  ].map(esc).join(',')));
+  const lines = [def.cols.map(c => esc(c[0])).join(',')];
+  rows.forEach(r => lines.push(def.cols.map(c => esc(c[1](r))).join(',')));
   const blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = 'documents_report_' + new Date().toISOString().slice(0, 10) + '.csv';
+  a.href = url; a.download = def.name.replace(/\s+/g, '_').toLowerCase() + '_report_' + new Date().toISOString().slice(0, 10) + '.csv';
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
