@@ -43,16 +43,22 @@ async function initializeApp() {
 
   } catch (error) {
 
-    console.warn(
-      'Session validation failed:',
-      error
-    );
+    console.warn('Session validation failed:', error);
 
+    // No error.code = a transient network / GAS-redirect (404) error that survived retries.
+    // In that case keep the session and load with the stored user instead of forcing a logout.
+    const transient = !(error && error.code);
+    const stored = (typeof AUTH.getUser === 'function') ? AUTH.getUser() : null;
+
+    if (transient && stored) {
+      setCurrentUser(stored);
+      hideSessionLoading();
+      showApp();
+      return;
+    }
 
     AUTH.clearSession();
-
     hideSessionLoading();
-
     showLogin();
 
   }
