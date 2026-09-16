@@ -31,7 +31,13 @@ const NAVIGATION = {
     {
       id: 'documents',
       icon: '📄',
-      label: 'Document Control'
+      label: 'Document Control',
+      defaultPage: 'documents-dashboard',
+      children: [
+        { id: 'documents-dashboard', label: 'Dashboard' },
+        { id: 'documents-activities', label: 'Activities' },
+        { id: 'documents-reports', label: 'Reports' }
+      ]
     },
 
     {
@@ -155,6 +161,7 @@ function renderNavigation() {
       if (item.children) {
 
         wrapper.classList.toggle('expanded');
+        if (item.defaultPage) navigateTo(item.defaultPage);
 
       } else {
 

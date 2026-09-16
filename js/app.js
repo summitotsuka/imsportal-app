@@ -352,8 +352,21 @@ function navigateTo(page) {
 
 
     case 'documents':
+    case 'documents-activities':
 
       loadDocuments();
+
+      break;
+
+    case 'documents-dashboard':
+
+      loadDcDashboard();
+
+      break;
+
+    case 'documents-reports':
+
+      loadDcReports();
 
       break;
 
