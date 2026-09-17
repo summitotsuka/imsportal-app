@@ -39,6 +39,11 @@ const NAVIGATION = {
         { id: 'documents-reports', label: 'Reports' }
       ]
     },
+    {
+      id: 'tqis',
+      icon: '🏭',
+      label: 'TQIS Patrol'
+    },
 
     {
       id: 'risk',

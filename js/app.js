@@ -376,6 +376,12 @@ function navigateTo(page) {
 
       break;
 
+    case 'tqis':
+
+      loadTqis();
+
+      break;
+
 
     default:
 
