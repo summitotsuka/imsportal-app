@@ -327,11 +327,17 @@ const DocumentsPage = {
     const types = [['MANUAL', 'Manual'], ['PROCEDURE', 'Procedure'], ['WORK_INSTRUCTION', 'Work Instruction'], ['FORM', 'Form'], ['INTERNAL', 'Internal'], ['EXTERNAL', 'External']];
     const deptOpts = Object.keys(this.deptMap).map(id => `<option value="${dEsc(id)}">${dEsc(this.deptMap[id])}</option>`).join('');
     const checks = Object.keys(this.deptMap).map(id => `<label class="dc-chk"><input type="checkbox" class="imShare" value="${dEsc(id)}"> ${dEsc(this.deptMap[id])}</label>`).join('');
+    const person = (label, idBase, req) => `<div class="dc-field"><label>${label} ${req ? '<span class="dc-req">*</span>' : ''}</label>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input class="dc-in" id="${idBase}Id" style="width:120px" placeholder="รหัส">
+        <span id="${idBase}Name" class="dc-faint" style="font-size:13px;min-width:120px"></span>
+        <input type="date" class="dc-in" id="${idBase}Date" style="width:150px" title="วันที่">
+      </div></div>`;
     const c = document.getElementById('pageContent');
     c.innerHTML = `<div class="dc-wrap"><button class="dc-back" id="dcBack">← Back</button>
       <div class="dc-card">
         <h1 style="margin:0 0 4px;font-size:20px">Import Document (migration)</h1>
-        <p class="dc-muted" style="margin:0 0 16px">นำเข้าเอกสารเดิมเป็น EFFECTIVE — ข้ามการตรวจเลข/Rev (แต่ห้ามซ้ำ) · ทุกฝ่ายรับทราบอัตโนมัติ</p>
+        <p class="dc-muted" style="margin:0 0 16px">นำเข้าเป็น <b>ฉบับร่าง (DRAFT)</b> — ตรวจสอบให้ครบแล้วค่อยกด Publish as Effective</p>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
           <div class="dc-field"><label>Document number <span class="dc-req">*</span></label><input class="dc-in" id="imNo" placeholder="เช่น FM-HR-007"></div>
           <div class="dc-field"><label>Revision <span class="dc-req">*</span></label><input class="dc-in" id="imRev" value="00"></div>
@@ -339,38 +345,70 @@ const DocumentsPage = {
           <div class="dc-field"><label>Owner department <span class="dc-req">*</span></label><select class="dc-in" id="imDept">${deptOpts}</select></div>
           <div class="dc-field dc-span2"><label>Title <span class="dc-req">*</span></label><input class="dc-in" id="imTitle"></div>
           <div class="dc-field"><label>Effective Date <span class="dc-req">*</span></label><input type="date" class="dc-in" id="imEff"></div>
+          <div class="dc-field"><label>DAR No. <span class="dc-req">*</span></label><input class="dc-in" id="imDar" placeholder="เช่น 2026/013"></div>
+          <div class="dc-field"><label>4M Change</label><select class="dc-in" id="im4m"><option value="">—</option><option value="RELATED">เกี่ยวข้อง</option><option value="NOT_RELATED">ไม่เกี่ยวข้อง</option></select></div>
           <div class="dc-field"><label>Reason / note</label><input class="dc-in" id="imReason" placeholder="นำเข้าข้อมูลเดิม"></div>
+          <div class="dc-field dc-span2"><label>ReviewComment (ข้อคิดเห็น QMS)</label><input class="dc-in" id="imComment"></div>
         </div>
+        <div style="border-top:1px solid #eef0f3;margin:8px 0 12px;padding-top:12px"><b style="font-size:13px">ผู้เกี่ยวข้อง (กรอกรหัส → ระบบดึงชื่อ)</b></div>
+        ${person('ผู้จัดทำ (CreatedBy)', 'imCreated', true)}
+        ${person('ผู้อนุมัติฝ่าย (DeptApproved)', 'imDept2', false)}
+        ${person('ผู้ตรวจสอบ QMS (Reviewed)', 'imReview', false)}
+        ${person('ผู้อนุมัติ QMS Manager (Published)', 'imPub', false)}
         <div class="dc-field"><label>Distribute copies to (shared departments)</label><div class="dc-checks">${checks}</div></div>
         <div class="dc-field"><label>Attach file</label><input type="file" id="imFile" accept=".pdf,.doc,.docx,.xls,.xlsx"></div>
         <div id="imErr"></div>
-        <div class="dc-bar"><button class="dc-btn dc-ghost" id="imCancel" type="button">Cancel</button><button class="dc-btn dc-primary" id="imSave" type="button">Import</button></div>
+        <div class="dc-bar"><button class="dc-btn dc-ghost" id="imCancel" type="button">Cancel</button><button class="dc-btn dc-primary" id="imSave" type="button">Import (DRAFT)</button></div>
       </div></div>`;
     document.getElementById('dcBack').addEventListener('click', () => this.load());
     document.getElementById('imCancel').addEventListener('click', () => this.load());
     document.getElementById('imSave').addEventListener('click', () => this.submitImport());
+    ['imCreated', 'imDept2', 'imReview', 'imPub'].forEach(base => this.bindEmpLookup(base + 'Id', base + 'Name'));
+  },
+
+  bindEmpLookup(idElId, nameElId) {
+    const idEl = document.getElementById(idElId), nameEl = document.getElementById(nameElId);
+    if (!idEl || !nameEl) return;
+    idEl.addEventListener('blur', async () => {
+      const v = idEl.value.trim();
+      if (!v) { nameEl.textContent = ''; return; }
+      nameEl.style.color = '#9ca3af'; nameEl.textContent = '…';
+      try { const r = await API.get('lookupEmployee', { token: this.token(), employeeId: v }); nameEl.style.color = '#059669'; nameEl.textContent = r.fullName; }
+      catch (e) { nameEl.style.color = '#b91c1c'; nameEl.textContent = '⚠ ไม่พบรหัสนี้'; }
+    });
   },
 
   async submitImport() {
     const err = document.getElementById('imErr');
     const btn = document.getElementById('imSave'); btn.disabled = true; btn.textContent = 'Processing…';
-    const restore = () => { btn.disabled = false; btn.textContent = 'Import'; };
+    const restore = () => { btn.disabled = false; btn.textContent = 'Import (DRAFT)'; };
     const val = id => (document.getElementById(id) || {}).value || '';
+    const fail = m => { restore(); err.innerHTML = `<div class="dc-err">${dEsc(m)}</div>`; };
     const payload = {
       token: this.token(), DocNumber: val('imNo').trim(), Revision: val('imRev').trim(),
       DocumentType: val('imType'), DepartmentID: val('imDept'), Title: val('imTitle').trim(),
-      EffectiveDate: val('imEff'), Reason: val('imReason').trim(),
+      EffectiveDate: val('imEff'), DarNo: val('imDar').trim(), FourMChange: val('im4m'),
+      Reason: val('imReason').trim(), ReviewComment: val('imComment').trim(),
+      CreatedBy: val('imCreatedId').trim(), CreatedDate: val('imCreatedDate'),
+      DeptApprovedBy: val('imDept2Id').trim(), DeptApprovedDate: val('imDept2Date'),
+      ReviewedBy: val('imReviewId').trim(), ReviewedDate: val('imReviewDate'),
+      PublishedBy: val('imPubId').trim(), PublishedDate: val('imPubDate'),
       SharedDepartments: Array.from(document.querySelectorAll('.imShare:checked')).map(x => x.value)
     };
-    if (!payload.DocNumber || !payload.Revision || !payload.Title) { restore(); err.innerHTML = '<div class="dc-err">กรุณากรอกเลขเอกสาร/Revision/ชื่อ</div>'; return; }
-    if (!payload.EffectiveDate) { restore(); err.innerHTML = '<div class="dc-err">กรุณาระบุวันบังคับใช้</div>'; return; }
+    if (!payload.DocNumber || !payload.Revision || !payload.Title) return fail('กรอกเลขเอกสาร/Revision/ชื่อ');
+    if (!payload.EffectiveDate) return fail('กรุณาระบุวันบังคับใช้');
+    if (!payload.DarNo) return fail('กรุณาระบุ DAR No.');
+    if (!payload.CreatedBy) return fail('กรุณาระบุรหัสผู้จัดทำ');
+    // if a signer is given, their date is required
+    const pairs = [['DeptApprovedBy', 'DeptApprovedDate', 'ผู้อนุมัติฝ่าย'], ['ReviewedBy', 'ReviewedDate', 'ผู้ตรวจสอบ'], ['PublishedBy', 'PublishedDate', 'ผู้อนุมัติ']];
+    for (const [pid, pdate, lbl] of pairs) { if (payload[pid] && !payload[pdate]) return fail('กรุณาระบุวันที่ของ' + lbl); }
     try {
       const f = document.getElementById('imFile').files[0];
       if (f) { payload.file = await this.readFile(f); }
       const res = await API.post('importDocument', payload);
-      this.toast('นำเข้าเอกสารแล้ว (EFFECTIVE)');
+      this.toast('นำเข้าเป็นฉบับร่างแล้ว — ตรวจสอบแล้ว Publish');
       this.openDetail(res.documentId);
-    } catch (ex) { restore(); err.innerHTML = `<div class="dc-err">${dEsc((ex && ex.message) || 'ล้มเหลว')}</div>`; }
+    } catch (ex) { fail((ex && ex.message) || 'ล้มเหลว'); }
   },
 
   async openCreate() {
@@ -733,6 +771,7 @@ const DocumentsPage = {
     if (acts.indexOf('reject') !== -1) b.push(btn('reject', 'Reject', 'dc-danger'));
     if (acts.indexOf('cancel') !== -1) b.push(btn('cancel', 'Cancel document', 'dc-danger'));
     if (acts.indexOf('withdrawObsolete') !== -1) b.push(btn('withdrawObsolete', 'Withdraw obsolete request', 'dc-ghost'));
+    if (acts.indexOf('importPublish') !== -1) b.push(btn('importPublish', 'Publish as Effective', 'dc-primary'));
     if (acts.indexOf('acknowledge') !== -1) ackDepts.forEach(d =>
       b.push(`<button class="dc-btn dc-primary" data-ack="${dEsc(d)}" type="button">Acknowledge — ${dEsc(this.deptName(d))}</button>`));
     if (!b.length) return '';
@@ -769,6 +808,10 @@ const DocumentsPage = {
         else if (act === 'cancel') self.confirmModal({
           title: 'Cancel document', message: 'ยกเลิกเอกสารถาวร — จะทำอะไรต่อไม่ได้อีก', requireComment: true, commentLabel: 'เหตุผลที่ยกเลิก (จำเป็น)', requireMaster: true, confirmLabel: 'Cancel document', danger: true,
           onConfirm: (v, done) => self.runModal('cancelDocument', { documentId: id, comment: v.comment, masterPassword: v.master }, 'ยกเลิกเอกสารแล้ว', done, id)
+        });
+        else if (act === 'importPublish') self.confirmModal({
+          title: 'Publish imported document', message: 'ประกาศใช้เอกสารนำเข้านี้เป็น EFFECTIVE — ทุกฝ่ายที่เกี่ยวข้องจะรับทราบอัตโนมัติ', confirmLabel: 'Publish as Effective',
+          onConfirm: (v, done) => self.runModal('publishImported', { documentId: id }, 'ประกาศใช้แล้ว', done, id)
         });
         else if (act === 'withdrawObsolete') self.confirmModal({
           title: 'Withdraw obsolete request', message: 'ถอนคำขอยกเลิก — เอกสารกลับมาใช้งานปกติ (EFFECTIVE)', confirmLabel: 'Withdraw',
