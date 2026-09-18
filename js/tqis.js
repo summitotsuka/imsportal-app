@@ -13,6 +13,45 @@ function tqDate(v) { if (!v) return '—'; try { const d = new Date(v); if (isNa
 function tqLabel(list, v) { const f = list.find(x => x[0] === String(v).toUpperCase()); return f ? f[1] : (v || '—'); }
 function tqBadge(st) { const m = TQIS_STATUS[String(st || '').toUpperCase()] || [st || '—', 'dc-b-off']; return `<span class="dc-badge ${m[1]}">${m[0]}</span>`; }
 
+/* ---- images (Drive-backed, max 4 per kind) ---- */
+const TQIS_MAX_IMG = 4, TQIS_IMG_EDGE = 1280, TQIS_IMG_Q = 0.8;
+function tqImgIds(csv) { return String(csv || '').split(',').map(s => s.trim()).filter(Boolean); }
+function tqImgThumb(id) { return `https://drive.google.com/thumbnail?id=${encodeURIComponent(id)}&sz=w400`; }
+function tqImgLarge(id) { return `https://drive.google.com/thumbnail?id=${encodeURIComponent(id)}&sz=w1600`; }
+function tqImgOpen(id) { return `https://drive.google.com/file/d/${encodeURIComponent(id)}/view`; }
+
+/** Shrink a picked photo in the browser before upload — GAS cannot take a 5MB phone photo. */
+function tqResize(file, maxEdge, quality) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let w = img.naturalWidth, h = img.naturalHeight;
+      const s = Math.min(1, maxEdge / Math.max(w, h));
+      w = Math.max(1, Math.round(w * s)); h = Math.max(1, Math.round(h * s));
+      const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+      const ctx = cv.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);      // flatten transparency for JPEG
+      ctx.drawImage(img, 0, 0, w, h);
+      resolve(cv.toDataURL('image/jpeg', quality).split(',')[1]);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('อ่านไฟล์รูปไม่ได้')); };
+    img.src = url;
+  });
+}
+
+/** Full-size viewer with a link out to the real Drive page. */
+function tqLightbox(id) {
+  const s = document.createElement('div');
+  s.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.85);z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;padding:20px';
+  s.innerHTML = `<img src="${tqImgLarge(id)}" style="max-width:96vw;max-height:82vh;border-radius:8px;background:#fff">
+    <div style="display:flex;gap:10px"><a href="${tqImgOpen(id)}" target="_blank" rel="noopener" style="color:#fff;font-size:13px;text-decoration:underline">เปิดใน Drive</a>
+    <span style="color:#cbd5e1;font-size:13px">คลิกพื้นที่ว่างเพื่อปิด</span></div>`;
+  s.addEventListener('click', e => { if (e.target.tagName !== 'A' && e.target.tagName !== 'IMG') s.remove(); });
+  document.body.appendChild(s);
+}
+
 const TQIS = {
   _tab: 'inProgress', deptMap: {},
   token() { return AUTH.getToken(); },
@@ -99,10 +138,21 @@ const TQIS = {
           <div class="dc-field dc-span2"><label>Target Date <span class="dc-faint">(บังคับตั้งแต่ผู้จัดการอนุมัติ)</span></label><input type="date" class="dc-in" id="tqTarget" value="${editing && existing.TargetDate ? tqDate(existing.TargetDate) : ''}"></div>
           <div class="dc-field dc-span2"><label>Permanent Countermeasure <span class="dc-faint">(บังคับตั้งแต่ผู้จัดการอนุมัติ)</span></label><textarea class="dc-in" id="tqPerm" rows="2">${g('PermCountermeasure')}</textarea></div>
           <div class="dc-field dc-span2"><label>Finished Date (วันที่ทำเสร็จจริง) <span class="dc-faint">(บังคับตอน Final Approve · ต้องไม่ก่อนวันที่ตรวจ)</span></label><input type="date" class="dc-in" id="tqFinished" value="${editing && existing.FinishedDate ? tqDate(existing.FinishedDate) : ''}"></div>
+          ${editing ? '' : `
+          <div class="dc-field dc-span2"><label>รูปปัญหา — Before <span class="dc-faint">(สูงสุด ${TQIS_MAX_IMG} รูป · ย่อให้อัตโนมัติ)</span></label>
+            <div id="tqQBEFORE" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:6px"></div>
+            <input type="file" accept="image/*" multiple id="tqFileBEFORE" style="display:none">
+            <button type="button" class="dc-btn dc-ghost" id="tqAddBEFORE">+ เลือกรูป Before</button></div>
+          <div class="dc-field dc-span2"><label>รูปหลังแก้ไข — After <span class="dc-faint">(สูงสุด ${TQIS_MAX_IMG} รูป · เพิ่มภายหลังได้)</span></label>
+            <div id="tqQAFTER" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:6px"></div>
+            <input type="file" accept="image/*" multiple id="tqFileAFTER" style="display:none">
+            <button type="button" class="dc-btn dc-ghost" id="tqAddAFTER">+ เลือกรูป After</button></div>`}
         </div>
         <div id="tqErr"></div>
         <div class="dc-bar"><button class="dc-btn dc-ghost" id="tqCancel" type="button">Cancel</button><button class="dc-btn dc-primary" id="tqSave" type="button">${editing ? 'Save changes' : 'Create (DRAFT)'}</button></div>
       </div></div>`;
+    this._queue = { BEFORE: [], AFTER: [] };
+    if (!editing) ['BEFORE', 'AFTER'].forEach(k => this.wireQueue(k));
     // Finished date can never precede the patrol date — keep the picker's lower bound in sync.
     const pIn = document.getElementById('tqPatrol'), fIn = document.getElementById('tqFinished');
     const syncMin = () => { if (fIn) fIn.min = (pIn && pIn.value) || ''; };
@@ -112,6 +162,54 @@ const TQIS = {
     document.getElementById('tqBack').addEventListener('click', back);
     document.getElementById('tqCancel').addEventListener('click', back);
     document.getElementById('tqSave').addEventListener('click', () => this.submitForm(editing ? existing.TqisID : null));
+  },
+
+  // --- new-record image queue: picked now, uploaded right after the TQIS exists ---
+  wireQueue(kind) {
+    const self = this;
+    const inp = document.getElementById('tqFile' + kind);
+    const btn = document.getElementById('tqAdd' + kind);
+    if (!inp || !btn) return;
+    btn.addEventListener('click', () => inp.click());
+    inp.addEventListener('change', () => {
+      const room = TQIS_MAX_IMG - self._queue[kind].length;
+      Array.prototype.slice.call(inp.files, 0, Math.max(0, room)).forEach(f => self._queue[kind].push(f));
+      inp.value = '';
+      self.renderQueue(kind);
+    });
+    this.renderQueue(kind);
+  },
+
+  renderQueue(kind) {
+    const box = document.getElementById('tqQ' + kind);
+    if (!box) return;
+    const list = this._queue[kind];
+    box.innerHTML = list.map((f, i) => `<span style="display:inline-flex;align-items:center;gap:6px;background:#f1f5f9;border-radius:6px;padding:4px 8px;font-size:12px">
+      ${tqEsc(f.name.length > 22 ? f.name.slice(0, 22) + '…' : f.name)}
+      <button type="button" data-i="${i}" style="border:0;background:none;color:#b91c1c;cursor:pointer;font-size:14px;line-height:1">×</button></span>`).join('')
+      || `<span class="dc-faint" style="font-size:12px;color:#9ca3af">ยังไม่ได้เลือกรูป</span>`;
+    const btn = document.getElementById('tqAdd' + kind);
+    if (btn) btn.disabled = list.length >= TQIS_MAX_IMG;
+    box.querySelectorAll('[data-i]').forEach(b => b.addEventListener('click', () => {
+      this._queue[kind].splice(parseInt(b.dataset.i, 10), 1); this.renderQueue(kind);
+    }));
+  },
+
+  /** Resize + upload every queued image one at a time (never in parallel — GAS is slow). */
+  async flushQueue(tqisId, btn) {
+    const kinds = ['BEFORE', 'AFTER'];
+    const total = kinds.reduce((n, k) => n + this._queue[k].length, 0);
+    if (!total) return;
+    let done = 0;
+    for (const kind of kinds) {
+      for (const file of this._queue[kind]) {
+        done++;
+        if (btn) btn.textContent = `กำลังอัปโหลดรูป ${done}/${total}…`;
+        const base64 = await tqResize(file, TQIS_IMG_EDGE, TQIS_IMG_Q);
+        await API.post('uploadTqisImage', { token: this.token(), tqisId, kind, base64 });
+      }
+    }
+    this._queue = { BEFORE: [], AFTER: [] };
   },
 
   async submitForm(tqisId) {
@@ -139,8 +237,16 @@ const TQIS = {
     }
     if (!payload.ScenePlace || !payload.MachineEquip || !payload.Description) { restore(); err.innerHTML = '<div class="dc-err">กรุณากรอก Scene / Machine / Description</div>'; return; }
     try {
-      if (tqisId) { await API.post('updateTqis', payload); this.toast('บันทึกแล้ว'); this.openDetail(tqisId); }
-      else { const r = await API.post('createTqis', payload); this.toast('สร้าง TQIS แล้ว: ' + r.tqisNo); this.openDetail(r.tqisId); }
+      let id = tqisId, no = '';
+      if (tqisId) { await API.post('updateTqis', payload); }
+      else { const r = await API.post('createTqis', payload); id = r.tqisId; no = r.tqisNo; }
+      // The record exists now. An image failure must NOT throw us back to the form — re-submitting
+      // would create a second TQIS. Report it and go to the detail page, where photos can be retried.
+      let warn = '';
+      try { await this.flushQueue(id, btn); }
+      catch (ie) { warn = ' · อัปโหลดรูปไม่ครบ: ' + ((ie && ie.message) || 'ล้มเหลว'); }
+      this.toast((tqisId ? 'บันทึกแล้ว' : 'สร้าง TQIS แล้ว: ' + no) + warn);
+      this.openDetail(id);
     } catch (ex) { restore(); err.innerHTML = `<div class="dc-err">${tqEsc((ex && ex.message) || 'ล้มเหลว')}</div>`; }
   },
 
@@ -190,11 +296,77 @@ const TQIS = {
           ${t.FinalApprovedByName ? kv('Final approved by', tqEsc(t.FinalApprovedByName) + ' · ' + tqDate(t.FinalApprovedDate)) : ''}
         </div>
       </div>
+      ${this.galleryHtml(t, actions.indexOf('images') !== -1)}
       ${b.length ? `<div class="dc-card"><h2 style="margin:0 0 12px;font-size:15px">Actions</h2><div class="dc-actbar">${b.join('')}</div><div id="tqActErr"></div></div>` : ''}
       <div class="dc-card"><h2 style="margin:0 0 12px;font-size:15px">History</h2><ul class="dc-tl">${tl || '<li><span class="dot"></span><div class="meta">No history</div></li>'}</ul></div>
     </div><div class="dc-toast" id="dcToast"></div>`;
     document.getElementById('tqBack').addEventListener('click', () => this.load());
     this.wireActions(t);
+    this.wireGallery(t, actions.indexOf('images') !== -1);
+  },
+
+  galleryHtml(t, canEdit) {
+    const sec = (kind, title, csv) => {
+      const ids = tqImgIds(csv);
+      const tiles = ids.map(id => `<div style="position:relative">
+        <img src="${tqImgThumb(id)}" data-view="${tqEsc(id)}" loading="lazy"
+             style="width:118px;height:88px;object-fit:cover;border-radius:6px;border:1px solid #e2e8f0;cursor:zoom-in;background:#f8fafc">
+        ${canEdit ? `<button type="button" data-del="${tqEsc(id)}" data-kind="${kind}" title="ลบรูป"
+             style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;border:0;background:#dc2626;color:#fff;cursor:pointer;font-size:13px;line-height:1">×</button>` : ''}
+      </div>`).join('');
+      return `<div style="margin-bottom:14px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <h3 style="margin:0;font-size:13.5px">${title}</h3>
+          <span class="dc-faint" style="font-size:12px;color:#9ca3af">${ids.length}/${TQIS_MAX_IMG}</span>
+          ${canEdit && ids.length < TQIS_MAX_IMG ? `<button type="button" class="dc-btn dc-ghost" data-add="${kind}" style="padding:3px 10px;font-size:12px">+ เพิ่มรูป</button>
+            <input type="file" accept="image/*" multiple data-inp="${kind}" style="display:none">` : ''}
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px">${tiles || `<span class="dc-faint" style="font-size:12px;color:#9ca3af">ไม่มีรูป</span>`}</div>
+      </div>`;
+    };
+    return `<div class="dc-card"><h2 style="margin:0 0 12px;font-size:15px">รูปประกอบ</h2>
+      ${sec('BEFORE', 'Before — รูปปัญหา', t.BeforeImages)}
+      ${sec('AFTER', 'After — รูปหลังแก้ไข', t.AfterImages)}
+      <div id="tqImgErr"></div></div>`;
+  },
+
+  wireGallery(t, canEdit) {
+    const self = this;
+    document.querySelectorAll('#pageContent [data-view]').forEach(im =>
+      im.addEventListener('click', () => tqLightbox(im.dataset.view)));
+    if (!canEdit) return;
+    const err = m => { const e = document.getElementById('tqImgErr'); if (e) e.innerHTML = m ? `<div class="dc-err">${tqEsc(m)}</div>` : ''; };
+
+    document.querySelectorAll('#pageContent [data-del]').forEach(b => b.addEventListener('click', async () => {
+      if (!confirm('ลบรูปนี้? ไฟล์จะถูกลบออกจาก Drive ด้วย')) return;
+      b.disabled = true; err('');
+      try {
+        await API.post('deleteTqisImage', { token: self.token(), tqisId: t.TqisID, kind: b.dataset.kind, fileId: b.dataset.del });
+        self.openDetail(t.TqisID);
+      } catch (ex) { b.disabled = false; err((ex && ex.message) || 'ลบรูปไม่สำเร็จ'); }
+    }));
+
+    document.querySelectorAll('#pageContent [data-add]').forEach(b => {
+      const kind = b.dataset.add;
+      const inp = document.querySelector(`#pageContent [data-inp="${kind}"]`);
+      if (!inp) return;
+      b.addEventListener('click', () => inp.click());
+      inp.addEventListener('change', async () => {
+        const used = tqImgIds(kind === 'AFTER' ? t.AfterImages : t.BeforeImages).length;
+        const files = Array.prototype.slice.call(inp.files, 0, Math.max(0, TQIS_MAX_IMG - used));
+        inp.value = '';
+        if (!files.length) return;
+        b.disabled = true; err('');
+        try {
+          for (let i = 0; i < files.length; i++) {
+            b.textContent = `กำลังอัปโหลด ${i + 1}/${files.length}…`;
+            const base64 = await tqResize(files[i], TQIS_IMG_EDGE, TQIS_IMG_Q);
+            await API.post('uploadTqisImage', { token: self.token(), tqisId: t.TqisID, kind, base64 });
+          }
+          self.openDetail(t.TqisID);
+        } catch (ex) { b.disabled = false; b.textContent = '+ เพิ่มรูป'; err((ex && ex.message) || 'อัปโหลดไม่สำเร็จ'); }
+      });
+    });
   },
 
   wireActions(t) {
