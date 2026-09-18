@@ -1,6 +1,6 @@
 /* TQIS module — Phase 1 (core flow) */
 const TQIS_TABS = [['inProgress', 'In Progress'], ['forApproval', 'For Approval'], ['finished', 'TQIS Finished']];
-const TQIS_PROBLEM = [['QUALITY', 'Quality (คุณภาพ)'], ['IMPROVEMENT', 'Improvement (ปรับปรุง)'], ['5S', '5S (5ส)']];
+const TQIS_PROBLEM = [['QUALITY', 'Quality (คุณภาพ)'], ['IMPROVEMENT', 'Improvement (ปรับปรุง)'], ['5S', '5S (5ส)'], ['SAFETY', 'Safety (ความปลอดภัย)']];
 const TQIS_HAZARD = [['INTERNAL_YOKOTEN', 'Internal YOKOTEN'], ['TDEM_YOKOTEN', 'TDEM YOKOTEN'], ['CRA', 'CRA (Condition Risk Assessment)'], ['FIRE_PREVENTION', 'Fire prevention'], ['INTERNAL_AUDIT', 'Internal audit'], ['DAILY_CHECK', 'Daily check']];
 const TQIS_STOP = [['STOP1', 'Stop1: Machine Stop'], ['STOP2', 'Stop2: Heavy objects'], ['STOP3', 'Stop3: Forklift Vehicle'], ['STOP4', 'Stop4: High work'], ['STOP5', 'Stop5: Electrical'], ['STOP6', 'Stop6: Hot objects'], ['OTHER', 'Other']];
 const TQIS_RANK = [['A', 'Rank A: Fatal (Death)'], ['B', 'Rank B: Injury / Disability / Absent'], ['C', 'Rank C: Little injury (no absent)'], ['D', 'Rank D: Other']];
@@ -55,14 +55,14 @@ const TQIS = {
     const box = document.getElementById('tqList');
     const items = ((this.data && this.data.inbox) || {})[this._tab] || [];
     if (!items.length) { box.innerHTML = `<p class="dc-faint" style="padding:6px;color:#9ca3af">Nothing here.</p>`; return; }
-    box.innerHTML = `<table class="dc-tbl"><thead><tr><th>TQIS No.</th><th>Problem</th><th>Dept</th><th>Rank</th><th>Status</th><th>Inspect</th></tr></thead><tbody>${items.map(t => `
+    box.innerHTML = `<table class="dc-tbl"><thead><tr><th>TQIS No.</th><th>Problem</th><th>Dept</th><th>Rank</th><th>Status</th><th>Patrol Date</th></tr></thead><tbody>${items.map(t => `
       <tr class="dc-row" data-id="${tqEsc(t.TqisID)}">
         <td><span class="dc-id">${tqEsc(t.TqisNo)}</span></td>
         <td>${tqEsc(tqLabel(TQIS_PROBLEM, t.ProblemType))} <span class="dc-faint">${tqEsc(String(t.ScenePlace || '').slice(0, 30))}</span></td>
         <td>${tqEsc(this.deptName(t.DepartmentID))}</td>
         <td>${tqEsc(t.RiskRank)}</td>
         <td>${tqBadge(t.Status)}</td>
-        <td class="dc-faint" style="white-space:nowrap">${tqEsc(t.InspectYear)}-${String(t.InspectMonth).padStart(2, '0')}</td>
+        <td class="dc-faint" style="white-space:nowrap">${t.PatrolDate ? tqDate(t.PatrolDate) : (tqEsc(t.InspectYear) + '-' + String(t.InspectMonth).padStart(2, '0'))}</td>
       </tr>`).join('')}</tbody></table>`;
     box.querySelectorAll('[data-id]').forEach(r => r.addEventListener('click', () => this.openDetail(r.dataset.id)));
   },
@@ -70,9 +70,14 @@ const TQIS = {
   openForm(existing) {
     if (typeof DocumentsPage !== 'undefined') DocumentsPage.injectCss();
     const editing = !!existing;
-    const sel = (id, list, cur) => `<select class="dc-in" id="${id}">${list.map(o => `<option value="${o[0]}" ${editing && String(cur).toUpperCase() === o[0] ? 'selected' : ''}>${o[1]}</option>`).join('')}</select>`;
-    const deptOpts = Object.keys(this.deptMap).map(id => `<option value="${tqEsc(id)}" ${editing && String(existing.DepartmentID).trim() === id ? 'selected' : ''}>${tqEsc(this.deptMap[id])}</option>`).join('');
-    const now = new Date();
+    const sel = (id, list, cur, ph) => {
+      const has = editing && cur;
+      const phOpt = `<option value="" disabled ${has ? '' : 'selected'}>${ph || '— เลือก —'}</option>`;
+      return `<select class="dc-in" id="${id}">${phOpt}${list.map(o => `<option value="${o[0]}" ${has && String(cur).toUpperCase() === o[0] ? 'selected' : ''}>${o[1]}</option>`).join('')}</select>`;
+    };
+    const hasDept = editing && existing.DepartmentID;
+    const deptOpts = `<option value="" disabled ${hasDept ? '' : 'selected'}>— เลือกฝ่าย —</option>` +
+      Object.keys(this.deptMap).map(id => `<option value="${tqEsc(id)}" ${hasDept && String(existing.DepartmentID).trim() === id ? 'selected' : ''}>${tqEsc(this.deptMap[id])}</option>`).join('');
     const g = (k, d) => editing ? tqEsc(existing[k] || '') : (d || '');
     const c = document.getElementById('pageContent');
     c.innerHTML = `<div class="dc-wrap"><button class="dc-back" id="tqBack">← Back</button>
@@ -82,8 +87,7 @@ const TQIS = {
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
           <div class="dc-field"><label>Problem Type <span class="dc-req">*</span></label>${sel('tqProblem', TQIS_PROBLEM, existing && existing.ProblemType)}</div>
           <div class="dc-field"><label>Department (ฝ่ายที่ต้องแก้) <span class="dc-req">*</span></label><select class="dc-in" id="tqDept">${deptOpts}</select></div>
-          <div class="dc-field"><label>Inspect Year <span class="dc-req">*</span></label><input class="dc-in" id="tqYear" type="number" value="${editing ? tqEsc(existing.InspectYear) : now.getFullYear()}" ${editing ? 'readonly' : ''}></div>
-          <div class="dc-field"><label>Inspect Month <span class="dc-req">*</span></label><input class="dc-in" id="tqMonth" type="number" min="1" max="12" value="${editing ? tqEsc(existing.InspectMonth) : (now.getMonth() + 1)}" ${editing ? 'readonly' : ''}></div>
+          <div class="dc-field"><label>Patrol Date (วันที่ตรวจ) <span class="dc-req">*</span></label><input type="date" class="dc-in" id="tqPatrol" value="${editing && existing.PatrolDate ? tqDate(existing.PatrolDate) : ''}" ${editing ? 'readonly' : ''}>${editing ? '' : '<span class="dc-faint" style="font-size:11px">เลขที่ TQIS อ้างอิงเดือน/ปีจากวันนี้</span>'}</div>
           <div class="dc-field"><label>Hazard Source <span class="dc-req">*</span></label>${sel('tqHazard', TQIS_HAZARD, existing && existing.HazardSource)}</div>
           <div class="dc-field"><label>Stop Type <span class="dc-req">*</span></label>${sel('tqStop', TQIS_STOP, existing && existing.StopType)}</div>
           <div class="dc-field"><label>Risk Rank <span class="dc-req">*</span></label>${sel('tqRank', TQIS_RANK, existing && existing.RiskRank)}</div>
@@ -111,11 +115,22 @@ const TQIS = {
     const v = id => (document.getElementById(id) || {}).value;
     const payload = {
       token: this.token(), tqisId: tqisId || undefined,
-      ProblemType: v('tqProblem'), DepartmentID: v('tqDept'), InspectYear: v('tqYear'), InspectMonth: v('tqMonth'),
+      ProblemType: v('tqProblem'), DepartmentID: v('tqDept'), PatrolDate: v('tqPatrol'),
       HazardSource: v('tqHazard'), StopType: v('tqStop'), RiskRank: v('tqRank'), TargetDate: v('tqTarget'),
       ScenePlace: v('tqScene').trim(), MachineEquip: v('tqMachine').trim(), Description: v('tqDesc').trim(),
       ManagementAdvice: v('tqAdvice').trim(), TempCountermeasure: v('tqTemp').trim(), PermCountermeasure: v('tqPerm').trim()
     };
+    // On create, everything marked * must be actively chosen (selects start blank, date has no default).
+    if (!tqisId) {
+      const miss = [];
+      if (!payload.ProblemType) miss.push('Problem Type');
+      if (!payload.DepartmentID) miss.push('Department');
+      if (!payload.PatrolDate) miss.push('Patrol Date');
+      if (!payload.HazardSource) miss.push('Hazard Source');
+      if (!payload.StopType) miss.push('Stop Type');
+      if (!payload.RiskRank) miss.push('Risk Rank');
+      if (miss.length) { restore(); err.innerHTML = `<div class="dc-err">กรุณาเลือก: ${miss.join(', ')}</div>`; return; }
+    }
     if (!payload.ScenePlace || !payload.MachineEquip || !payload.Description) { restore(); err.innerHTML = '<div class="dc-err">กรุณากรอก Scene / Machine / Description</div>'; return; }
     try {
       if (tqisId) { await API.post('updateTqis', payload); this.toast('บันทึกแล้ว'); this.openDetail(tqisId); }
@@ -157,7 +172,7 @@ const TQIS = {
           ${kv('Machine / Equipment', tqEsc(t.MachineEquip))}
           ${kv('Stop Type', tqEsc(tqLabel(TQIS_STOP, t.StopType)))}
           ${kv('Risk Rank', tqEsc(tqLabel(TQIS_RANK, t.RiskRank)))}
-          ${kv('Inspect', tqEsc(t.InspectYear) + '-' + String(t.InspectMonth).padStart(2, '0'))}
+          ${kv('Patrol Date', t.PatrolDate ? tqDate(t.PatrolDate) : (tqEsc(t.InspectYear) + '-' + String(t.InspectMonth).padStart(2, '0')))}
           ${kv('Target Date', tqDate(t.TargetDate))}
           ${kv('Description', tqEsc(t.Description))}
           ${kv('Management Advice', tqEsc(t.ManagementAdvice))}

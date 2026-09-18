@@ -1,5 +1,31 @@
+// Fallback maps only — the live role names are pulled from the Roles sheet (getRoles) on login
+// and merged in, so a new role added in the sheet shows its name without any code change.
 const ROLE_LABELS = { R001: 'Administrator', R002: 'QMS Manager', R003: 'QMS Reviewer', R004: 'User', R005: 'HR', R006: 'Department Manager', R007: 'HR Manager', R008: 'HR Staff' };
 const ROLE_NAME = { R001: 'ADMIN', R002: 'QMS_MANAGER', R003: 'QMS', R004: 'USER', R005: 'HR', R006: 'DEPT_MANAGER', R007: 'HR_MANAGER', R008: 'HR_STAFF' };
+
+// Pull role names from the Roles sheet once per session and merge into the maps above.
+var _rolesLoaded = false, _rolesPromise = null;
+function loadRolesMap() {
+  if (_rolesLoaded) return Promise.resolve();
+  if (_rolesPromise) return _rolesPromise;
+  var token = (typeof AUTH !== 'undefined' && AUTH.getToken) ? AUTH.getToken() : null;
+  if (!token) return Promise.resolve();
+  _rolesPromise = API.get('getRoles', { token: token }).then(function (res) {
+    var list = (res && (res.roles || res.data || res)) || [];
+    if (!Array.isArray(list)) list = [];
+    list.forEach(function (r) {
+      if (!r) return;
+      var id = r.roleId || r.RoleID || r.id || r.Role || '';
+      if (!id) return;
+      var name = r.roleName || r.RoleName || r.name || r.Name || '';
+      var label = r.roleLabel || r.RoleLabel || r.label || r.description || r.Description || name;
+      if (name) ROLE_NAME[id] = name;
+      if (label) ROLE_LABELS[id] = label;
+    });
+    _rolesLoaded = true;
+  }).catch(function () { /* keep fallback maps on failure */ });
+  return _rolesPromise;
+}
 
 document.addEventListener(
   'DOMContentLoaded',
@@ -306,20 +332,23 @@ function setCurrentUser(user) {
   if (usernameElement) usernameElement.textContent = line1(user.employeeId, user.fullName || user.username, '');
   if (roleElement) roleElement.textContent = line2('', user.roleId);
 
-  // enrich once — a single shared request even if setCurrentUser runs several times
+  // enrich once — profile + role names fetched together, a single shared request set
   var token = AUTH.getToken();
   if (!token) return;
   if (!_profilePromise) {
-    _profilePromise = API.post('getMyProfile', { token: token })
-      .then(function (p) { if (p) _profileCache = p; return p; })
-      .catch(function () { return null; });
+    _profilePromise = Promise.all([
+      API.post('getMyProfile', { token: token })
+        .then(function (p) { if (p) _profileCache = p; return p; })
+        .catch(function () { return null; }),
+      loadRolesMap()
+    ]).then(function (arr) { return arr[0]; });
   }
   _profilePromise.then(function (p) {
-    if (!p) return;
     var un = document.getElementById('currentUsername');
     var rl = document.getElementById('currentRole');
-    if (un) un.textContent = line1(p.employeeId || user.employeeId, p.fullName || user.fullName, p.department);
-    if (rl) rl.textContent = line2(p.position, p.roleId || user.roleId);
+    // re-render even if the profile call returned nothing, so the role name (now loaded) shows
+    if (un) un.textContent = line1((p && p.employeeId) || user.employeeId, (p && p.fullName) || user.fullName, p && p.department);
+    if (rl) rl.textContent = line2(p && p.position, (p && p.roleId) || user.roleId);
   });
 
 }
