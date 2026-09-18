@@ -138,21 +138,26 @@ const TQIS = {
           <div class="dc-field dc-span2"><label>Target Date <span class="dc-faint">(บังคับตั้งแต่ผู้จัดการอนุมัติ)</span></label><input type="date" class="dc-in" id="tqTarget" value="${editing && existing.TargetDate ? tqDate(existing.TargetDate) : ''}"></div>
           <div class="dc-field dc-span2"><label>Permanent Countermeasure <span class="dc-faint">(บังคับตั้งแต่ผู้จัดการอนุมัติ)</span></label><textarea class="dc-in" id="tqPerm" rows="2">${g('PermCountermeasure')}</textarea></div>
           <div class="dc-field dc-span2"><label>Finished Date (วันที่ทำเสร็จจริง) <span class="dc-faint">(บังคับตอน Final Approve · ต้องไม่ก่อนวันที่ตรวจ)</span></label><input type="date" class="dc-in" id="tqFinished" value="${editing && existing.FinishedDate ? tqDate(existing.FinishedDate) : ''}"></div>
-          ${editing ? '' : `
-          <div class="dc-field dc-span2"><label>รูปปัญหา — Before <span class="dc-faint">(สูงสุด ${TQIS_MAX_IMG} รูป · ย่อให้อัตโนมัติ)</span></label>
-            <div id="tqQBEFORE" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:6px"></div>
+          <div class="dc-field dc-span2"><label>รูปปัญหา — Before <span class="dc-faint">(สูงสุด ${TQIS_MAX_IMG} รูป · ระบบย่อให้อัตโนมัติ)</span></label>
+            <div id="tqStripBEFORE" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:6px"></div>
             <input type="file" accept="image/*" multiple id="tqFileBEFORE" style="display:none">
-            <button type="button" class="dc-btn dc-ghost" id="tqAddBEFORE">+ เลือกรูป Before</button></div>
-          <div class="dc-field dc-span2"><label>รูปหลังแก้ไข — After <span class="dc-faint">(สูงสุด ${TQIS_MAX_IMG} รูป · เพิ่มภายหลังได้)</span></label>
-            <div id="tqQAFTER" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:6px"></div>
+            <button type="button" class="dc-btn dc-ghost" id="tqAddBEFORE">+ เลือกรูป Before</button>
+            <div id="tqImgErrBEFORE"></div></div>
+          <div class="dc-field dc-span2"><label>รูปหลังแก้ไข — After <span class="dc-faint">(สูงสุด ${TQIS_MAX_IMG} รูป)</span></label>
+            <div id="tqStripAFTER" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:6px"></div>
             <input type="file" accept="image/*" multiple id="tqFileAFTER" style="display:none">
-            <button type="button" class="dc-btn dc-ghost" id="tqAddAFTER">+ เลือกรูป After</button></div>`}
+            <button type="button" class="dc-btn dc-ghost" id="tqAddAFTER">+ เลือกรูป After</button>
+            <div id="tqImgErrAFTER"></div></div>
         </div>
         <div id="tqErr"></div>
         <div class="dc-bar"><button class="dc-btn dc-ghost" id="tqCancel" type="button">Cancel</button><button class="dc-btn dc-primary" id="tqSave" type="button">${editing ? 'Save changes' : 'Create (DRAFT)'}</button></div>
       </div></div>`;
+    // Photos live in the form (like the Document module). On an existing record they upload/delete
+    // straight away; while creating they queue and go up as soon as the TQIS has an ID.
+    this._imgId = editing ? existing.TqisID : null;
+    this._existing = { BEFORE: editing ? tqImgIds(existing.BeforeImages) : [], AFTER: editing ? tqImgIds(existing.AfterImages) : [] };
     this._queue = { BEFORE: [], AFTER: [] };
-    if (!editing) ['BEFORE', 'AFTER'].forEach(k => this.wireQueue(k));
+    ['BEFORE', 'AFTER'].forEach(k => this.wireImgField(k));
     // Finished date can never precede the patrol date — keep the picker's lower bound in sync.
     const pIn = document.getElementById('tqPatrol'), fIn = document.getElementById('tqFinished');
     const syncMin = () => { if (fIn) fIn.min = (pIn && pIn.value) || ''; };
@@ -164,34 +169,70 @@ const TQIS = {
     document.getElementById('tqSave').addEventListener('click', () => this.submitForm(editing ? existing.TqisID : null));
   },
 
-  // --- new-record image queue: picked now, uploaded right after the TQIS exists ---
-  wireQueue(kind) {
+  // --- photos inside the form ---
+  imgLabel(kind) { return '+ เลือกรูป ' + (kind === 'AFTER' ? 'After' : 'Before'); },
+  imgErr(kind, msg) {
+    const e = document.getElementById('tqImgErr' + kind);
+    if (e) e.innerHTML = msg ? `<div class="dc-err">${tqEsc(msg)}</div>` : '';
+  },
+
+  wireImgField(kind) {
     const self = this;
     const inp = document.getElementById('tqFile' + kind);
     const btn = document.getElementById('tqAdd' + kind);
     if (!inp || !btn) return;
     btn.addEventListener('click', () => inp.click());
-    inp.addEventListener('change', () => {
-      const room = TQIS_MAX_IMG - self._queue[kind].length;
-      Array.prototype.slice.call(inp.files, 0, Math.max(0, room)).forEach(f => self._queue[kind].push(f));
+    inp.addEventListener('change', async () => {
+      const used = self._existing[kind].length + self._queue[kind].length;
+      const files = Array.prototype.slice.call(inp.files, 0, Math.max(0, TQIS_MAX_IMG - used));
       inp.value = '';
-      self.renderQueue(kind);
+      if (!files.length) return;
+      self.imgErr(kind, '');
+      if (!self._imgId) {                      // creating — hold until the record exists
+        files.forEach(f => self._queue[kind].push(f));
+        self.renderStrip(kind);
+        return;
+      }
+      btn.disabled = true;
+      try {
+        for (let i = 0; i < files.length; i++) {
+          btn.textContent = `กำลังอัปโหลด ${i + 1}/${files.length}…`;
+          const base64 = await tqResize(files[i], TQIS_IMG_EDGE, TQIS_IMG_Q);
+          const r = await API.post('uploadTqisImage', { token: self.token(), tqisId: self._imgId, kind, base64 });
+          if (r && r.images) self._existing[kind] = r.images;
+        }
+      } catch (ex) { self.imgErr(kind, (ex && ex.message) || 'อัปโหลดไม่สำเร็จ'); }
+      btn.disabled = false; btn.textContent = self.imgLabel(kind);
+      self.renderStrip(kind);
     });
-    this.renderQueue(kind);
+    this.renderStrip(kind);
   },
 
-  renderQueue(kind) {
-    const box = document.getElementById('tqQ' + kind);
+  renderStrip(kind) {
+    const box = document.getElementById('tqStrip' + kind);
     if (!box) return;
-    const list = this._queue[kind];
-    box.innerHTML = list.map((f, i) => `<span style="display:inline-flex;align-items:center;gap:6px;background:#f1f5f9;border-radius:6px;padding:4px 8px;font-size:12px">
-      ${tqEsc(f.name.length > 22 ? f.name.slice(0, 22) + '…' : f.name)}
-      <button type="button" data-i="${i}" style="border:0;background:none;color:#b91c1c;cursor:pointer;font-size:14px;line-height:1">×</button></span>`).join('')
-      || `<span class="dc-faint" style="font-size:12px;color:#9ca3af">ยังไม่ได้เลือกรูป</span>`;
+    const ex = this._existing[kind], q = this._queue[kind];
+    const tiles = ex.map(id => `<div style="position:relative">
+      <img src="${tqImgThumb(id)}" data-view="${tqEsc(id)}" loading="lazy" style="width:110px;height:82px;object-fit:cover;border-radius:6px;border:1px solid #e2e8f0;cursor:zoom-in;background:#f8fafc">
+      <button type="button" data-del="${tqEsc(id)}" title="ลบรูป" style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;border:0;background:#dc2626;color:#fff;cursor:pointer;font-size:13px;line-height:1">×</button></div>`).join('');
+    const chips = q.map((f, i) => `<span style="display:inline-flex;align-items:center;gap:6px;background:#f1f5f9;border-radius:6px;padding:4px 8px;font-size:12px">
+      ${tqEsc(f.name.length > 20 ? f.name.slice(0, 20) + '…' : f.name)}
+      <button type="button" data-q="${i}" style="border:0;background:none;color:#b91c1c;cursor:pointer;font-size:14px;line-height:1">×</button></span>`).join('');
+    box.innerHTML = (tiles + chips) || `<span class="dc-faint" style="font-size:12px;color:#9ca3af">ยังไม่มีรูป</span>`;
     const btn = document.getElementById('tqAdd' + kind);
-    if (btn) btn.disabled = list.length >= TQIS_MAX_IMG;
-    box.querySelectorAll('[data-i]').forEach(b => b.addEventListener('click', () => {
-      this._queue[kind].splice(parseInt(b.dataset.i, 10), 1); this.renderQueue(kind);
+    if (btn) btn.disabled = (ex.length + q.length) >= TQIS_MAX_IMG;
+    box.querySelectorAll('[data-view]').forEach(im => im.addEventListener('click', () => tqLightbox(im.dataset.view)));
+    box.querySelectorAll('[data-q]').forEach(b => b.addEventListener('click', () => {
+      this._queue[kind].splice(parseInt(b.dataset.q, 10), 1); this.renderStrip(kind);
+    }));
+    box.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
+      if (!confirm('ลบรูปนี้? ไฟล์จะถูกลบออกจาก Drive ด้วย')) return;
+      b.disabled = true; this.imgErr(kind, '');
+      try {
+        const r = await API.post('deleteTqisImage', { token: this.token(), tqisId: this._imgId, kind, fileId: b.dataset.del });
+        this._existing[kind] = (r && r.images) || [];
+      } catch (ex) { this.imgErr(kind, (ex && ex.message) || 'ลบรูปไม่สำเร็จ'); }
+      this.renderStrip(kind);
     }));
   },
 
@@ -296,77 +337,38 @@ const TQIS = {
           ${t.FinalApprovedByName ? kv('Final approved by', tqEsc(t.FinalApprovedByName) + ' · ' + tqDate(t.FinalApprovedDate)) : ''}
         </div>
       </div>
-      ${this.galleryHtml(t, actions.indexOf('images') !== -1)}
+      ${this.galleryHtml(t)}
       ${b.length ? `<div class="dc-card"><h2 style="margin:0 0 12px;font-size:15px">Actions</h2><div class="dc-actbar">${b.join('')}</div><div id="tqActErr"></div></div>` : ''}
       <div class="dc-card"><h2 style="margin:0 0 12px;font-size:15px">History</h2><ul class="dc-tl">${tl || '<li><span class="dot"></span><div class="meta">No history</div></li>'}</ul></div>
     </div><div class="dc-toast" id="dcToast"></div>`;
     document.getElementById('tqBack').addEventListener('click', () => this.load());
     this.wireActions(t);
-    this.wireGallery(t, actions.indexOf('images') !== -1);
+    this.wireGallery();
   },
 
-  galleryHtml(t, canEdit) {
-    const sec = (kind, title, csv) => {
+  /** Read-only viewer: Before down the left, After down the right. Uploading happens in the form. */
+  galleryHtml(t) {
+    const col = (title, csv) => {
       const ids = tqImgIds(csv);
-      const tiles = ids.map(id => `<div style="position:relative">
-        <img src="${tqImgThumb(id)}" data-view="${tqEsc(id)}" loading="lazy"
-             style="width:118px;height:88px;object-fit:cover;border-radius:6px;border:1px solid #e2e8f0;cursor:zoom-in;background:#f8fafc">
-        ${canEdit ? `<button type="button" data-del="${tqEsc(id)}" data-kind="${kind}" title="ลบรูป"
-             style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;border:0;background:#dc2626;color:#fff;cursor:pointer;font-size:13px;line-height:1">×</button>` : ''}
-      </div>`).join('');
-      return `<div style="margin-bottom:14px">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-          <h3 style="margin:0;font-size:13.5px">${title}</h3>
-          <span class="dc-faint" style="font-size:12px;color:#9ca3af">${ids.length}/${TQIS_MAX_IMG}</span>
-          ${canEdit && ids.length < TQIS_MAX_IMG ? `<button type="button" class="dc-btn dc-ghost" data-add="${kind}" style="padding:3px 10px;font-size:12px">+ เพิ่มรูป</button>
-            <input type="file" accept="image/*" multiple data-inp="${kind}" style="display:none">` : ''}
-        </div>
-        <div style="display:flex;flex-wrap:wrap;gap:10px">${tiles || `<span class="dc-faint" style="font-size:12px;color:#9ca3af">ไม่มีรูป</span>`}</div>
-      </div>`;
+      const shots = ids.map(id => `<img src="${tqImgThumb(id)}" data-view="${tqEsc(id)}" loading="lazy"
+        style="width:100%;max-width:340px;aspect-ratio:4/3;object-fit:cover;border-radius:8px;border:1px solid #e2e8f0;cursor:zoom-in;background:#f8fafc">`).join('');
+      return `<div>
+        <h3 style="margin:0 0 10px;font-size:13.5px">${title}
+          <span class="dc-faint" style="font-size:12px;color:#9ca3af;font-weight:400">${ids.length}/${TQIS_MAX_IMG}</span></h3>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          ${shots || `<span class="dc-faint" style="font-size:12px;color:#9ca3af">ไม่มีรูป</span>`}
+        </div></div>`;
     };
     return `<div class="dc-card"><h2 style="margin:0 0 12px;font-size:15px">รูปประกอบ</h2>
-      ${sec('BEFORE', 'Before — รูปปัญหา', t.BeforeImages)}
-      ${sec('AFTER', 'After — รูปหลังแก้ไข', t.AfterImages)}
-      <div id="tqImgErr"></div></div>`;
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:20px">
+        ${col('Before — รูปปัญหา', t.BeforeImages)}
+        ${col('After — รูปหลังแก้ไข', t.AfterImages)}
+      </div></div>`;
   },
 
-  wireGallery(t, canEdit) {
-    const self = this;
+  wireGallery() {
     document.querySelectorAll('#pageContent [data-view]').forEach(im =>
       im.addEventListener('click', () => tqLightbox(im.dataset.view)));
-    if (!canEdit) return;
-    const err = m => { const e = document.getElementById('tqImgErr'); if (e) e.innerHTML = m ? `<div class="dc-err">${tqEsc(m)}</div>` : ''; };
-
-    document.querySelectorAll('#pageContent [data-del]').forEach(b => b.addEventListener('click', async () => {
-      if (!confirm('ลบรูปนี้? ไฟล์จะถูกลบออกจาก Drive ด้วย')) return;
-      b.disabled = true; err('');
-      try {
-        await API.post('deleteTqisImage', { token: self.token(), tqisId: t.TqisID, kind: b.dataset.kind, fileId: b.dataset.del });
-        self.openDetail(t.TqisID);
-      } catch (ex) { b.disabled = false; err((ex && ex.message) || 'ลบรูปไม่สำเร็จ'); }
-    }));
-
-    document.querySelectorAll('#pageContent [data-add]').forEach(b => {
-      const kind = b.dataset.add;
-      const inp = document.querySelector(`#pageContent [data-inp="${kind}"]`);
-      if (!inp) return;
-      b.addEventListener('click', () => inp.click());
-      inp.addEventListener('change', async () => {
-        const used = tqImgIds(kind === 'AFTER' ? t.AfterImages : t.BeforeImages).length;
-        const files = Array.prototype.slice.call(inp.files, 0, Math.max(0, TQIS_MAX_IMG - used));
-        inp.value = '';
-        if (!files.length) return;
-        b.disabled = true; err('');
-        try {
-          for (let i = 0; i < files.length; i++) {
-            b.textContent = `กำลังอัปโหลด ${i + 1}/${files.length}…`;
-            const base64 = await tqResize(files[i], TQIS_IMG_EDGE, TQIS_IMG_Q);
-            await API.post('uploadTqisImage', { token: self.token(), tqisId: t.TqisID, kind, base64 });
-          }
-          self.openDetail(t.TqisID);
-        } catch (ex) { b.disabled = false; b.textContent = '+ เพิ่มรูป'; err((ex && ex.message) || 'อัปโหลดไม่สำเร็จ'); }
-      });
-    });
   },
 
   wireActions(t) {
