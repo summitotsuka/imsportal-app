@@ -91,12 +91,12 @@ const TQIS = {
           <div class="dc-field"><label>Hazard Source <span class="dc-req">*</span></label>${sel('tqHazard', TQIS_HAZARD, existing && existing.HazardSource)}</div>
           <div class="dc-field"><label>Stop Type <span class="dc-req">*</span></label>${sel('tqStop', TQIS_STOP, existing && existing.StopType)}</div>
           <div class="dc-field"><label>Risk Rank <span class="dc-req">*</span></label>${sel('tqRank', TQIS_RANK, existing && existing.RiskRank)}</div>
-          <div class="dc-field"><label>Target Date</label><input type="date" class="dc-in" id="tqTarget" value="${editing && existing.TargetDate ? tqDate(existing.TargetDate) : ''}"></div>
-          <div class="dc-field dc-span2"><label>Scene / Place <span class="dc-req">*</span></label><input class="dc-in" id="tqScene" value="${g('ScenePlace')}"></div>
-          <div class="dc-field dc-span2"><label>Machine / Equipment <span class="dc-req">*</span></label><input class="dc-in" id="tqMachine" value="${g('MachineEquip')}"></div>
+          <div class="dc-field"><label>Scene / Place <span class="dc-req">*</span></label><input class="dc-in" id="tqScene" value="${g('ScenePlace')}"></div>
+          <div class="dc-field"><label>Machine / Equipment <span class="dc-req">*</span></label><input class="dc-in" id="tqMachine" value="${g('MachineEquip')}"></div>
           <div class="dc-field dc-span2"><label>Description <span class="dc-req">*</span></label><textarea class="dc-in" id="tqDesc" rows="3">${g('Description')}</textarea></div>
           <div class="dc-field dc-span2"><label>Management Advice</label><textarea class="dc-in" id="tqAdvice" rows="2">${g('ManagementAdvice')}</textarea></div>
           <div class="dc-field dc-span2"><label>Temporary Countermeasure <span class="dc-faint">(บังคับตั้งแต่ผู้จัดการอนุมัติ)</span></label><textarea class="dc-in" id="tqTemp" rows="2">${g('TempCountermeasure')}</textarea></div>
+          <div class="dc-field dc-span2"><label>Target Date <span class="dc-faint">(บังคับตั้งแต่ผู้จัดการอนุมัติ)</span></label><input type="date" class="dc-in" id="tqTarget" value="${editing && existing.TargetDate ? tqDate(existing.TargetDate) : ''}"></div>
           <div class="dc-field dc-span2"><label>Permanent Countermeasure <span class="dc-faint">(บังคับตั้งแต่ผู้จัดการอนุมัติ)</span></label><textarea class="dc-in" id="tqPerm" rows="2">${g('PermCountermeasure')}</textarea></div>
         </div>
         <div id="tqErr"></div>
@@ -174,6 +174,7 @@ const TQIS = {
           ${kv('Risk Rank', tqEsc(tqLabel(TQIS_RANK, t.RiskRank)))}
           ${kv('Patrol Date', t.PatrolDate ? tqDate(t.PatrolDate) : (tqEsc(t.InspectYear) + '-' + String(t.InspectMonth).padStart(2, '0')))}
           ${kv('Target Date', tqDate(t.TargetDate))}
+          ${t.FinishedDate ? kv('Finished Date (ทำเสร็จจริง)', tqDate(t.FinishedDate)) : ''}
           ${kv('Description', tqEsc(t.Description))}
           ${kv('Management Advice', tqEsc(t.ManagementAdvice))}
           ${kv('Temporary Countermeasure', tqEsc(t.TempCountermeasure))}
@@ -197,7 +198,7 @@ const TQIS = {
       if (a === 'edit') self.openForm(t);
       else if (a === 'submit') self.run('submitTqis', { tqisId: id }, 'ส่งอนุมัติแล้ว', bt);
       else if (a === 'deptApprove') self.run('approveTqisDept', { tqisId: id, decision: 'APPROVE' }, 'อนุมัติ (ฝ่าย) แล้ว', bt);
-      else if (a === 'finalApprove') self.run('approveTqisFinal', { tqisId: id, decision: 'APPROVE' }, 'ปิดงานแล้ว', bt);
+      else if (a === 'finalApprove') self.finishModal(t);
       else if (a === 'deptReject') self.commentModal('Reject to creator', 'approveTqisDept', { tqisId: id, decision: 'REJECT' }, id);
       else if (a === 'finalReject') self.commentModal('Reject to department', 'approveTqisFinal', { tqisId: id, decision: 'REJECT' }, id);
       else if (a === 'cancel') self.commentModal('Cancel TQIS', 'cancelTqis', { tqisId: id }, id);
@@ -226,6 +227,36 @@ const TQIS = {
       API.post(action, Object.assign({ token: self.token(), comment: cmt }, payload))
         .then(() => { close(); self.toast('ดำเนินการแล้ว'); self.openDetail(tqisId); })
         .catch(ex => { scrim.querySelector('#tqCmtErr').innerHTML = `<div class="dc-err">${tqEsc((ex && ex.message) || 'ล้มเหลว')}</div>`; });
+    });
+  },
+
+  // Final approve = close the TQIS. Requires a real Finished Date within [Patrol Date, today].
+  finishModal(t) {
+    const self = this;
+    const patrol = t.PatrolDate ? tqDate(t.PatrolDate) : '';
+    const today = tqDate(new Date());
+    const scrim = document.createElement('div'); scrim.className = 'dc-scrim';
+    scrim.innerHTML = `<div class="dc-modal"><h3 style="margin:0 0 12px">Final Approve — ปิดงาน TQIS</h3>
+      <label style="font-size:12.5px;font-weight:600;display:block;margin-bottom:4px">Finished Date (วันที่ทำเสร็จจริง) <span class="dc-req">*</span></label>
+      <input type="date" class="dc-in" id="tqFin" min="${patrol}" max="${today}" value="">
+      ${patrol ? `<span class="dc-faint" style="font-size:11px">ต้องอยู่ระหว่างวันที่ตรวจ (${patrol}) ถึงวันนี้ (${today})</span>` : ''}
+      <label style="font-size:12.5px;font-weight:600;display:block;margin:12px 0 4px">หมายเหตุ (ถ้ามี)</label>
+      <textarea class="dc-in" id="tqFinCmt" rows="2"></textarea><div id="tqFinErr"></div>
+      <div class="dc-bar"><button class="dc-btn dc-ghost" id="tqFinX" type="button">Cancel</button><button class="dc-btn dc-primary" id="tqFinOk" type="button">Confirm Finish</button></div></div>`;
+    document.body.appendChild(scrim);
+    const close = () => scrim.remove();
+    const showErr = m => { scrim.querySelector('#tqFinErr').innerHTML = `<div class="dc-err">${tqEsc(m)}</div>`; };
+    scrim.querySelector('#tqFinX').addEventListener('click', close);
+    scrim.querySelector('#tqFinOk').addEventListener('click', () => {
+      const fin = scrim.querySelector('#tqFin').value;
+      if (!fin) { showErr('กรุณาระบุวันที่ทำเสร็จ'); return; }
+      if (patrol && fin < patrol) { showErr('วันที่ทำเสร็จต้องไม่ก่อนวันที่ตรวจ'); return; }
+      if (fin > today) { showErr('วันที่ทำเสร็จต้องไม่เกินวันนี้'); return; }
+      const cmt = scrim.querySelector('#tqFinCmt').value.trim();
+      const ok = scrim.querySelector('#tqFinOk'); ok.disabled = true; ok.textContent = 'Processing…';
+      API.post('approveTqisFinal', { token: self.token(), tqisId: t.TqisID, decision: 'APPROVE', FinishedDate: fin, comment: cmt })
+        .then(() => { close(); self.toast('ปิดงานแล้ว'); self.openDetail(t.TqisID); })
+        .catch(ex => { ok.disabled = false; ok.textContent = 'Confirm Finish'; showErr((ex && ex.message) || 'ล้มเหลว'); });
     });
   },
 
