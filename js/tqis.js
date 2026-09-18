@@ -93,7 +93,7 @@ const TQIS = {
           <div class="dc-field"><label>Risk Rank <span class="dc-req">*</span></label>${sel('tqRank', TQIS_RANK, existing && existing.RiskRank)}</div>
           <div class="dc-field"><label>Scene / Place <span class="dc-req">*</span></label><input class="dc-in" id="tqScene" value="${g('ScenePlace')}"></div>
           <div class="dc-field"><label>Machine / Equipment <span class="dc-req">*</span></label><input class="dc-in" id="tqMachine" value="${g('MachineEquip')}"></div>
-          <div class="dc-field dc-span2"><label>Description <span class="dc-req">*</span></label><textarea class="dc-in" id="tqDesc" rows="3">${g('Description')}</textarea></div>
+          <div class="dc-field dc-span2"><label>Description <span class="dc-req">*</span></label><textarea class="dc-in" id="tqDesc" rows="2">${g('Description')}</textarea></div>
           <div class="dc-field dc-span2"><label>Management Advice</label><textarea class="dc-in" id="tqAdvice" rows="2">${g('ManagementAdvice')}</textarea></div>
           <div class="dc-field dc-span2"><label>Temporary Countermeasure <span class="dc-faint">(บังคับตั้งแต่ผู้จัดการอนุมัติ)</span></label><textarea class="dc-in" id="tqTemp" rows="2">${g('TempCountermeasure')}</textarea></div>
           <div class="dc-field dc-span2"><label>Target Date <span class="dc-faint">(บังคับตั้งแต่ผู้จัดการอนุมัติ)</span></label><input type="date" class="dc-in" id="tqTarget" value="${editing && existing.TargetDate ? tqDate(existing.TargetDate) : ''}"></div>
@@ -224,9 +224,10 @@ const TQIS = {
     scrim.querySelector('#tqCmtOk').addEventListener('click', () => {
       const cmt = scrim.querySelector('#tqCmt').value.trim();
       if (!cmt) { scrim.querySelector('#tqCmtErr').innerHTML = '<div class="dc-err">กรุณาใส่เหตุผล</div>'; return; }
+      const ok = scrim.querySelector('#tqCmtOk'); ok.disabled = true; ok.textContent = 'Processing…';
       API.post(action, Object.assign({ token: self.token(), comment: cmt }, payload))
         .then(() => { close(); self.toast('ดำเนินการแล้ว'); self.openDetail(tqisId); })
-        .catch(ex => { scrim.querySelector('#tqCmtErr').innerHTML = `<div class="dc-err">${tqEsc((ex && ex.message) || 'ล้มเหลว')}</div>`; });
+        .catch(ex => { ok.disabled = false; ok.textContent = 'Confirm'; scrim.querySelector('#tqCmtErr').innerHTML = `<div class="dc-err">${tqEsc((ex && ex.message) || 'ล้มเหลว')}</div>`; });
     });
   },
 
