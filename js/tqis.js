@@ -98,10 +98,16 @@ const TQIS = {
           <div class="dc-field dc-span2"><label>Temporary Countermeasure <span class="dc-faint">(บังคับตั้งแต่ผู้จัดการอนุมัติ)</span></label><textarea class="dc-in" id="tqTemp" rows="2">${g('TempCountermeasure')}</textarea></div>
           <div class="dc-field dc-span2"><label>Target Date <span class="dc-faint">(บังคับตั้งแต่ผู้จัดการอนุมัติ)</span></label><input type="date" class="dc-in" id="tqTarget" value="${editing && existing.TargetDate ? tqDate(existing.TargetDate) : ''}"></div>
           <div class="dc-field dc-span2"><label>Permanent Countermeasure <span class="dc-faint">(บังคับตั้งแต่ผู้จัดการอนุมัติ)</span></label><textarea class="dc-in" id="tqPerm" rows="2">${g('PermCountermeasure')}</textarea></div>
+          <div class="dc-field dc-span2"><label>Finished Date (วันที่ทำเสร็จจริง) <span class="dc-faint">(บังคับตอน Final Approve · ต้องไม่ก่อนวันที่ตรวจ)</span></label><input type="date" class="dc-in" id="tqFinished" value="${editing && existing.FinishedDate ? tqDate(existing.FinishedDate) : ''}"></div>
         </div>
         <div id="tqErr"></div>
         <div class="dc-bar"><button class="dc-btn dc-ghost" id="tqCancel" type="button">Cancel</button><button class="dc-btn dc-primary" id="tqSave" type="button">${editing ? 'Save changes' : 'Create (DRAFT)'}</button></div>
       </div></div>`;
+    // Finished date can never precede the patrol date — keep the picker's lower bound in sync.
+    const pIn = document.getElementById('tqPatrol'), fIn = document.getElementById('tqFinished');
+    const syncMin = () => { if (fIn) fIn.min = (pIn && pIn.value) || ''; };
+    if (pIn) pIn.addEventListener('change', syncMin);
+    syncMin();
     const back = () => editing ? this.openDetail(existing.TqisID) : this.load();
     document.getElementById('tqBack').addEventListener('click', back);
     document.getElementById('tqCancel').addEventListener('click', back);
@@ -116,7 +122,7 @@ const TQIS = {
     const payload = {
       token: this.token(), tqisId: tqisId || undefined,
       ProblemType: v('tqProblem'), DepartmentID: v('tqDept'), PatrolDate: v('tqPatrol'),
-      HazardSource: v('tqHazard'), StopType: v('tqStop'), RiskRank: v('tqRank'), TargetDate: v('tqTarget'),
+      HazardSource: v('tqHazard'), StopType: v('tqStop'), RiskRank: v('tqRank'), TargetDate: v('tqTarget'), FinishedDate: v('tqFinished'),
       ScenePlace: v('tqScene').trim(), MachineEquip: v('tqMachine').trim(), Description: v('tqDesc').trim(),
       ManagementAdvice: v('tqAdvice').trim(), TempCountermeasure: v('tqTemp').trim(), PermCountermeasure: v('tqPerm').trim()
     };
@@ -239,7 +245,7 @@ const TQIS = {
     const scrim = document.createElement('div'); scrim.className = 'dc-scrim';
     scrim.innerHTML = `<div class="dc-modal"><h3 style="margin:0 0 12px">Final Approve — ปิดงาน TQIS</h3>
       <label style="font-size:12.5px;font-weight:600;display:block;margin-bottom:4px">Finished Date (วันที่ทำเสร็จจริง) <span class="dc-req">*</span></label>
-      <input type="date" class="dc-in" id="tqFin" min="${patrol}" max="${today}" value="">
+      <input type="date" class="dc-in" id="tqFin" min="${patrol}" max="${today}" value="${t.FinishedDate ? tqDate(t.FinishedDate) : ''}">
       ${patrol ? `<span class="dc-faint" style="font-size:11px">ต้องอยู่ระหว่างวันที่ตรวจ (${patrol}) ถึงวันนี้ (${today})</span>` : ''}
       <label style="font-size:12.5px;font-weight:600;display:block;margin:12px 0 4px">หมายเหตุ (ถ้ามี)</label>
       <textarea class="dc-in" id="tqFinCmt" rows="2"></textarea><div id="tqFinErr"></div>
