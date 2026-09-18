@@ -1,16 +1,18 @@
-// Fallback maps only — the live role names are pulled from the Roles sheet (getRoles) on login
-// and merged in, so a new role added in the sheet shows its name without any code change.
+// Fallback maps only — the live role names are pulled from the Roles sheet (getRoleNames)
+// on login and merged in, so a new role added in the sheet shows its name without any code change.
 const ROLE_LABELS = { R001: 'Administrator', R002: 'QMS Manager', R003: 'QMS Reviewer', R004: 'User', R005: 'HR', R006: 'Department Manager', R007: 'HR Manager', R008: 'HR Staff' };
 const ROLE_NAME = { R001: 'ADMIN', R002: 'QMS_MANAGER', R003: 'QMS', R004: 'USER', R005: 'HR', R006: 'DEPT_MANAGER', R007: 'HR_MANAGER', R008: 'HR_STAFF' };
 
 // Pull role names from the Roles sheet once per session and merge into the maps above.
+// Uses getRoleNames (session-only, not User-Admin gated) so every role — including new
+// ones like R009 — resolves for any signed-in user.
 var _rolesLoaded = false, _rolesPromise = null;
 function loadRolesMap() {
   if (_rolesLoaded) return Promise.resolve();
   if (_rolesPromise) return _rolesPromise;
   var token = (typeof AUTH !== 'undefined' && AUTH.getToken) ? AUTH.getToken() : null;
   if (!token) return Promise.resolve();
-  _rolesPromise = API.get('getRoles', { token: token }).then(function (res) {
+  _rolesPromise = API.get('getRoleNames', { token: token }).then(function (res) {
     var list = (res && (res.roles || res.data || res)) || [];
     if (!Array.isArray(list)) list = [];
     list.forEach(function (r) {
@@ -18,7 +20,7 @@ function loadRolesMap() {
       var id = r.roleId || r.RoleID || r.id || r.Role || '';
       if (!id) return;
       var name = r.roleName || r.RoleName || r.name || r.Name || '';
-      var label = r.roleLabel || r.RoleLabel || r.label || r.description || r.Description || name;
+      var label = r.label || r.roleLabel || r.RoleLabel || r.description || r.Description || name;
       if (name) ROLE_NAME[id] = name;
       if (label) ROLE_LABELS[id] = label;
     });
