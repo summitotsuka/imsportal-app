@@ -660,7 +660,7 @@ const TQISDash = {
 function loadTqisDashboard() { TQISDash.load(); }
 
 /* =============================== Reports =============================== */
-const TQIS_REPORTS = [['SUMMARY', 'TQIS Summary'], ['PERFORMANCE', 'Performance by Department'], ['SAFETY', 'Safety & Risk']];
+const TQIS_REPORTS = [['SUMMARY', 'TQIS Summary'], ['MANAGER_PATROL', 'Manager Patrol Form'], ['PERFORMANCE', 'Performance by Department'], ['SAFETY', 'Safety & Risk']];
 
 const TQISReport = {
   _res: null, _meta: null,
@@ -728,8 +728,9 @@ const TQISReport = {
     const r = this._res, box = document.getElementById('rpOut');
     const title = (TQIS_REPORTS.find(x => x[0] === r.type) || ['', r.type])[1];
     const body = r.type === 'SUMMARY' ? this.summaryHtml(r.rows, false)
-      : r.type === 'PERFORMANCE' ? this.perfHtml(r.rows)
-        : this.safetyHtml(r);
+      : r.type === 'MANAGER_PATROL' ? this.patrolHtml(r.rows, false)
+        : r.type === 'PERFORMANCE' ? this.perfHtml(r.rows)
+          : this.safetyHtml(r);
     box.innerHTML = `<div class="dc-card" style="margin-top:16px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px">
         <div><h2 style="margin:0;font-size:15px">${tqEsc(title)}</h2>
@@ -769,6 +770,38 @@ const TQISReport = {
       <td>${tqEsc(o.FinalApprovedByName)}</td></tr>`).join('')}</tbody></table>`;
   },
 
+  // Manager Patrol form — grouped by patrol date, one "round" header per date, photos prominent.
+  patrolHtml(rows, forPrint) {
+    if (!rows.length) return '<p class="dc-faint" style="color:#9ca3af;font-size:12px">ไม่พบข้อมูลตามเงื่อนไข</p>';
+    const groups = {}, order = [];
+    rows.forEach(o => { const key = tqDate(o.PatrolDate); if (!groups[key]) { groups[key] = []; order.push(key); } groups[key].push(o); });
+    const size = forPrint ? 96 : 82;
+    const img = csv => {
+      const ids = tqImgIds(csv);
+      if (!ids.length) return '<span style="color:#9ca3af">—</span>';
+      return `<div style="display:flex;gap:3px;flex-wrap:wrap">${ids.map(id =>
+        `<img src="${tqImgThumb(id)}" loading="lazy" style="width:${size}px;height:${Math.round(size * .75)}px;object-fit:cover;border-radius:3px;border:1px solid #c3c2b7">`).join('')}</div>`;
+    };
+    const cls = forPrint ? '' : ' class="tq-rt"';
+    const dateBig = key => (key && key !== '—') ? key.replace(/\//g, ' / ') : '—';
+    return order.map((key, gi) => `<div${forPrint && gi > 0 ? ' style="break-before:page"' : ''}>
+      <div style="text-align:center;margin:${forPrint ? (gi ? '0 0 8px' : '0 0 8px') : (gi ? '26px 0 8px' : '4px 0 8px')}">
+        <div style="font-size:${forPrint ? '16px' : '17px'};font-weight:700">( MANAGER PATROL ) รอบโรงงาน</div>
+        <div style="letter-spacing:1px;color:#52514e">...... ${dateBig(key)} ......</div>
+      </div>
+      <table${cls}><thead><tr>
+        <th>ลำดับ</th><th>TQIS No.</th><th>วันที่</th><th>ประเภท</th><th>ฝ่าย</th><th>จุด / บริเวณ</th><th>ปัญหา</th><th>ข้อเสนอแนะผู้บริหาร</th>
+        <th>Before</th><th>After</th><th>การแก้ไขถาวร</th><th>กำหนดเสร็จ</th><th>หัวหน้าฝ่ายอนุมัติ</th><th>เสร็จจริง</th><th>อนุมัติปิดงาน</th>
+      </tr></thead><tbody>${groups[key].map((o, i) => `<tr${forPrint ? '' : ` data-id="${tqEsc(o.TqisID)}" style="cursor:pointer"`}>
+        <td style="text-align:center">${i + 1}</td><td>${tqEsc(o.TqisNo)}</td><td style="white-space:nowrap">${tqDate(o.PatrolDate)}</td>
+        <td>${tqEsc(tqLabel(TQIS_PROBLEM, o.ProblemType))}</td><td>${tqEsc(TQIS.deptName(o.DepartmentID))}</td>
+        <td>${tqEsc(o.ScenePlace)}</td><td>${tqEsc(o.Description)}</td><td>${tqEsc(o.ManagementAdvice)}</td>
+        <td>${img(o.BeforeImages)}</td><td>${img(o.AfterImages)}</td><td>${tqEsc(o.PermCountermeasure)}</td>
+        <td style="white-space:nowrap">${tqDate(o.TargetDate)}</td><td>${tqEsc(o.DeptApprovedByName)}</td>
+        <td style="white-space:nowrap">${tqDate(o.FinishedDate)}</td><td>${tqEsc(o.FinalApprovedByName)}</td>
+      </tr>`).join('')}</tbody></table></div>`).join('');
+  },
+
   perfHtml(rows) {
     if (!rows.length) return '<p class="dc-faint" style="color:#9ca3af;font-size:12px">ไม่พบข้อมูลตามเงื่อนไข</p>';
     return `<table class="tq-rt"><thead><tr><th>ฝ่าย</th><th>ทั้งหมด</th><th>ปิดแล้ว</th><th>% ปิดได้</th><th>เฉลี่ยวันที่ใช้</th><th>เกินกำหนด</th></tr></thead>
@@ -796,9 +829,9 @@ const TQISReport = {
   csv() {
     const r = this._res;
     const stamp = tqDate(new Date());
-    if (r.type === 'SUMMARY') {
+    if (r.type === 'SUMMARY' || r.type === 'MANAGER_PATROL') {
       const links = csv => tqImgIds(csv).map(tqImgOpen).join(' ');
-      tqCsv(`TQIS_Summary_${stamp}.csv`,
+      tqCsv(`${r.type === 'MANAGER_PATROL' ? 'TQIS_ManagerPatrol' : 'TQIS_Summary'}_${stamp}.csv`,
         ['ลำดับ', 'TQIS No.', 'Patrol Date', 'Problem Type', 'ฝ่าย', 'Scene/Place', 'Description', 'Management Advice',
           'Before Images', 'After Images', 'Permanent Countermeasure', 'Target Date', 'Dept Approved By', 'Finished Date', 'Final Approved By', 'Status'],
         r.rows.map(o => [o.seq, o.TqisNo, tqDate(o.PatrolDate), tqLabel(TQIS_PROBLEM, o.ProblemType), TQIS.deptName(o.DepartmentID),
@@ -819,6 +852,11 @@ const TQISReport = {
   print() {
     const r = this._res;
     const title = (TQIS_REPORTS.find(x => x[0] === r.type) || ['', r.type])[1];
+    if (r.type === 'MANAGER_PATROL') {
+      // The form carries its own centred header per round — no generic report banner.
+      tqPrint(title, 'size: A3 landscape; margin: 10mm;', this.patrolHtml(r.rows, true));
+      return;
+    }
     const body = r.type === 'SUMMARY' ? this.summaryHtml(r.rows, true)
       : r.type === 'PERFORMANCE' ? this.perfHtml(r.rows)
         : this.safetyHtml(r);
