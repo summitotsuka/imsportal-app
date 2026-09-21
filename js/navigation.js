@@ -52,6 +52,17 @@ const NAVIGATION = {
     },
 
     {
+      id: 'training',
+      icon: '🎓',
+      label: 'Training',
+      defaultPage: 'training-records',
+      children: [
+        { id: 'training-records', label: 'Training Records' },
+        { id: 'training-courses', label: 'Courses' }
+      ]
+    },
+    
+    {
       id: 'risk',
       icon: '⚠️',
       label: 'Risk & Opportunity'
@@ -67,17 +78,6 @@ const NAVIGATION = {
       id: 'ncr',
       icon: '❌',
       label: 'NCR / CAPA'
-    },
-
-    {
-      id: 'training',
-      icon: '🎓',
-      label: 'Training',
-      defaultPage: 'training-records',
-      children: [
-        { id: 'training-records', label: 'Training Records' },
-        { id: 'training-courses', label: 'Courses' }
-      ]
     },
 
     {
