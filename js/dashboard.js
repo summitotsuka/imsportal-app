@@ -29,27 +29,53 @@ async function loadDashboard() {
   injectDashCss();
   content.innerHTML = `<div class="dash-wrap"><p class="dash-faint" style="padding:8px">Loading…</p></div>`;
   try {
-    const d = await API.get('getDashboard', { token: AUTH.getToken() });
+    // TQIS is optional — a user without TQIS access still sees the rest of the overview.
+    const [d, tq] = await Promise.all([
+      API.get('getDashboard', { token: AUTH.getToken() }),
+      API.get('getTqisDashboard', { token: AUTH.getToken() }).catch(() => null)
+    ]);
     await dashDepts();
     const recentDocs = (d.recentDocs || []).map(r =>
       `<li><b>${dEscD(r.docNumber)}</b> <span class="dash-faint">RV${dEscD(r.revision)}</span> — ${dEscD(r.title)}<div class="dash-faint" style="font-size:11px">${dEscD(dashDeptName(r.dep))} · <span class="dash-pill">${dEscD(r.status)}</span></div></li>`
     ).join('') || '<li class="dash-faint">No documents yet</li>';
-    content.innerHTML = `<div class="dash-wrap">
+
+    const tqCounts = (tq && tq.counts) || null;
+    const tqisBlock = tqCounts ? `
+      <div class="dash-col">
+        <div class="dash-sec">🏭 TQIS Patrol</div>
+        <div class="dash-grid dash-grid-sm">
+          ${dashCard('รออนุมัติฝ่าย', tqCounts.submitted, '#d97706')}
+          ${dashCard('รออนุมัติสุดท้าย', tqCounts.deptApproved, '#d97706')}
+          ${dashCard('เกินกำหนด', tqCounts.overdue, '#b91c1c')}
+          ${dashCard('ปิดงานเดือนนี้', tqCounts.finishedThisMonth, '#059669')}
+        </div>
+        <div class="dash-card" style="margin-top:12px">
+          <div class="dash-lbl">ปิดงานสะสมทั้งหมด <b style="color:#111827">${tqCounts.finished}</b> · เฉลี่ยเวลาแก้ ${tq.avgDaysToClose == null ? '—' : tq.avgDaysToClose + ' วัน'}</div>
+          <a class="dash-link" data-goto-tqis>ไปที่ TQIS Dashboard →</a>
+        </div>
+      </div>` : '';
+
+    content.innerHTML = `<div class="dash-wrap dash-ov">
       <h1 class="dash-h1">IMS Overview</h1>
       <p class="dash-faint" style="margin:0 0 6px">ภาพรวมระบบบริหารจัดการแบบบูรณาการ</p>
 
-      <div class="dash-sec">📄 Document Control</div>
-      <div class="dash-grid">
-        ${dashCard('เอกสารใช้งาน (Effective)', d.effective, '#059669')}
-        ${dashCard('รอ Department Approval', d.pendingDeptApproval, '#d97706')}
-        ${dashCard('รอ QMS Review', d.pendingReview, '#d97706')}
-        ${dashCard('รอรับทราบ (Acknowledge)', d.pendingAck, '#d97706')}
-        ${dashCard('สำเนารอทำลาย', d.copiesToDestroy, '#b91c1c')}
-      </div>
-      <div class="dash-card" style="margin-top:12px">
-        <div class="dash-lbl" style="margin-bottom:8px">เอกสารล่าสุด 5 รายการ</div>
-        <ul class="dash-recent">${recentDocs}</ul>
-        <a class="dash-link" data-goto="documents-dashboard">ไปที่ Document Control Dashboard →</a>
+      <div class="dash-modules">
+        <div class="dash-col">
+          <div class="dash-sec">📄 Document Control</div>
+          <div class="dash-grid dash-grid-sm">
+            ${dashCard('เอกสารใช้งาน (Effective)', d.effective, '#059669')}
+            ${dashCard('รอ Department Approval', d.pendingDeptApproval, '#d97706')}
+            ${dashCard('รอ QMS Review', d.pendingReview, '#d97706')}
+            ${dashCard('รอรับทราบ (Acknowledge)', d.pendingAck, '#d97706')}
+            ${dashCard('สำเนารอทำลาย', d.copiesToDestroy, '#b91c1c')}
+          </div>
+          <div class="dash-card" style="margin-top:12px">
+            <div class="dash-lbl" style="margin-bottom:8px">เอกสารล่าสุด 5 รายการ</div>
+            <ul class="dash-recent">${recentDocs}</ul>
+            <a class="dash-link" data-goto="documents-dashboard">ไปที่ Document Control Dashboard →</a>
+          </div>
+        </div>
+        ${tqisBlock}
       </div>
 
       ${['⚠️ NCR / CAPA', '🔍 Internal Audit', '🎓 Training & Competency', '🏭 Automotive Core Tools'].map(m =>
@@ -57,6 +83,8 @@ async function loadDashboard() {
     </div>`;
     const g = content.querySelector('[data-goto]');
     if (g) g.addEventListener('click', () => navigateTo('documents-dashboard'));
+    const gt = content.querySelector('[data-goto-tqis]');
+    if (gt) gt.addEventListener('click', () => navigateTo('tqis-dashboard'));
   } catch (e) {
     content.innerHTML = `<div class="dash-wrap"><p style="color:#b91c1c;padding:8px">โหลดไม่สำเร็จ: ${dEscD(e.message || '')}</p></div>`;
   }
@@ -243,6 +271,12 @@ function injectDashCss() {
     .dash-h1{font-size:22px;margin:0 0 8px}
     .dash-sec{font-size:12px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.03em;margin:22px 0 10px}
     .dash-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+    .dash-grid-sm{grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+    .dash-modules{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:22px;align-items:start}
+    .dash-col{min-width:0}
+    .dash-ov .dash-card{padding:13px 15px}
+    .dash-ov .dash-val{font-size:25px}
+    .dash-ov .dash-sec{margin-top:14px}
     .dash-card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px}
     .dash-val{font-size:30px;font-weight:700;line-height:1}
     .dash-lbl{font-size:13px;color:#6b7280;margin-top:6px}
