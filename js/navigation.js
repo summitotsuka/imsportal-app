@@ -72,7 +72,12 @@ const NAVIGATION = {
     {
       id: 'training',
       icon: '🎓',
-      label: 'Training & Competency'
+      label: 'Training',
+      defaultPage: 'training-records',
+      children: [
+        { id: 'training-records', label: 'Training Records' },
+        { id: 'training-courses', label: 'Courses' }
+      ]
     },
 
     {

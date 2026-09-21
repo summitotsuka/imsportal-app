@@ -426,6 +426,18 @@ function navigateTo(page) {
 
       break;
 
+    case 'training-courses':
+
+      loadTrainingCourses();
+
+      break;
+
+    case 'training-records':
+
+      loadTrainingRecords();
+
+      break;
+
 
     default:
 
