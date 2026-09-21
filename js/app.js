@@ -408,8 +408,21 @@ function navigateTo(page) {
       break;
 
     case 'tqis':
+    case 'tqis-activities':
 
       loadTqis();
+
+      break;
+
+    case 'tqis-dashboard':
+
+      loadTqisDashboard();
+
+      break;
+
+    case 'tqis-reports':
+
+      loadTqisReports();
 
       break;
 

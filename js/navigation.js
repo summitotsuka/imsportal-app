@@ -42,7 +42,13 @@ const NAVIGATION = {
     {
       id: 'tqis',
       icon: '🏭',
-      label: 'TQIS Patrol'
+      label: 'TQIS Patrol',
+      defaultPage: 'tqis-dashboard',
+      children: [
+        { id: 'tqis-dashboard', label: 'Dashboard' },
+        { id: 'tqis-activities', label: 'Manager Patrol' },
+        { id: 'tqis-reports', label: 'Reports' }
+      ]
     },
 
     {
