@@ -790,14 +790,22 @@ const TQISReport = {
         <div style="letter-spacing:1px;color:#52514e">...... ${dateBig(key)} ......</div>
       </div>
       <table${cls}><thead><tr>
-        <th>ลำดับ</th><th>TQIS No.</th><th>วันที่</th><th>ประเภท</th><th>ฝ่าย</th><th>จุด / บริเวณ</th><th>ปัญหา</th><th>ข้อเสนอแนะผู้บริหาร</th>
-        <th>Before</th><th>After</th><th>การแก้ไขถาวร</th><th>กำหนดเสร็จ</th><th>หัวหน้าฝ่ายอนุมัติ</th><th>เสร็จจริง</th><th>อนุมัติปิดงาน</th>
+        <th>ลำดับ</th><th>TQIS No.</th><th>วันที่</th><th>ประเภท</th><th>ฝ่าย</th><th>ปัญหา / ข้อเสนอแนะ</th>
+        <th>Before</th><th>After</th><th>การแก้ไขถาวร</th><th>หัวหน้าฝ่ายอนุมัติ</th><th>เสร็จจริง</th><th>อนุมัติปิดงาน</th>
       </tr></thead><tbody>${groups[key].map((o, i) => `<tr${forPrint ? '' : ` data-id="${tqEsc(o.TqisID)}" style="cursor:pointer"`}>
         <td style="text-align:center">${i + 1}</td><td>${tqEsc(o.TqisNo)}</td><td style="white-space:nowrap">${tqDate(o.PatrolDate)}</td>
         <td>${tqEsc(tqLabel(TQIS_PROBLEM, o.ProblemType))}</td><td>${tqEsc(TQIS.deptName(o.DepartmentID))}</td>
-        <td>${tqEsc(o.ScenePlace)}</td><td>${tqEsc(o.Description)}</td><td>${tqEsc(o.ManagementAdvice)}</td>
-        <td>${img(o.BeforeImages)}</td><td>${img(o.AfterImages)}</td><td>${tqEsc(o.PermCountermeasure)}</td>
-        <td style="white-space:nowrap">${tqDate(o.TargetDate)}</td><td>${tqEsc(o.DeptApprovedByName)}</td>
+        <td style="min-width:190px">
+          <div><span style="color:#52514e;font-weight:600">บริเวณ:</span> ${tqEsc(o.ScenePlace) || '—'}</div>
+          <div><span style="color:#52514e;font-weight:600">ปัญหา:</span> ${tqEsc(o.Description) || '—'}</div>
+          <div><span style="color:#52514e;font-weight:600">ข้อเสนอแนะ:</span> ${tqEsc(o.ManagementAdvice) || '—'}</div>
+        </td>
+        <td>${img(o.BeforeImages)}</td><td>${img(o.AfterImages)}</td>
+        <td style="min-width:150px">
+          <div><span style="color:#52514e;font-weight:600">การแก้ไข:</span> ${tqEsc(o.PermCountermeasure) || '—'}</div>
+          <div style="white-space:nowrap"><span style="color:#52514e;font-weight:600">กำหนดเสร็จ:</span> ${o.TargetDate ? tqDate(o.TargetDate) : '—'}</div>
+        </td>
+        <td>${tqEsc(o.DeptApprovedByName)}</td>
         <td style="white-space:nowrap">${tqDate(o.FinishedDate)}</td><td>${tqEsc(o.FinalApprovedByName)}</td>
       </tr>`).join('')}</tbody></table></div>`).join('');
   },
