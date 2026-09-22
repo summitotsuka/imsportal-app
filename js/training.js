@@ -26,7 +26,7 @@ const Training = {
     const c = document.getElementById('pageContent');
     c.innerHTML = `<div class="dc-wrap"><p class="dc-muted" style="padding:8px">Loading…</p></div>`;
     try { const r = await API.get('getTrainingCourses', { token: this.token() }); this.renderCourses(r.courses || []); }
-    catch (e) { c.innerHTML = `<div class="dc-wrap"><p style="color:#b91c1c;padding:8px">โหลดไม่สำเร็จ: ${trnEsc(e.message || '')}</p></div>`; }
+    catch (e) { c.innerHTML = `<div class="dc-wrap"><p style="color:#b91c1c;padding:8px">Failed to load: ${trnEsc(e.message || '')}</p></div>`; }
   },
 
   renderCourses(list) {
@@ -274,10 +274,10 @@ function loadTrainingRecords() { Training._courses = null; Training.loadRecords(
 
 /* ==================== Training Needs (FM-HR-03) — Phase 2a ==================== */
 const TN_TABS = [['inProgress', 'In Progress'], ['forApproval', 'For Approval'], ['inPlan', 'My Training Need'], ['cancelled', 'Cancelled']];
-const TN_PRIORITY = [['HIGH', 'สูง'], ['MEDIUM', 'กลาง'], ['LOW', 'ต่ำ']];
+const TN_PRIORITY = [['HIGH', 'High'], ['MEDIUM', 'Medium'], ['LOW', 'Low']];
 const TN_STATUS = {
-  DRAFT: ['ร่าง', 'dc-b-off'], SUBMITTED: ['รอหัวหน้าฝ่ายอนุมัติ', 'dc-b-info'], DEPT_APPROVED: ['รอ HR พิจารณา', 'dc-b-warn'],
-  IN_PLAN: ['เข้าแผนปี', 'dc-b-ok'], CANCELLED: ['ไม่เข้าแผน', 'dc-b-cancel']
+  DRAFT: ['Waiting for Submit', 'dc-b-off'], SUBMITTED: ['Waiting for Manager Approve', 'dc-b-info'], DEPT_APPROVED: ['Waiting for HR Review', 'dc-b-warn'],
+  IN_PLAN: ['In Plan', 'dc-b-ok'], CANCELLED: ['Not in Plan', 'dc-b-cancel']
 };
 function tnBadge(st) { const m = TN_STATUS[String(st || '').toUpperCase()] || [st || '—', 'dc-b-off']; return `<span class="dc-badge ${m[1]}">${m[0]}</span>`; }
 
@@ -296,22 +296,22 @@ const TrainingNeeds = {
     const c = document.getElementById('pageContent');
     c.innerHTML = `<div class="dc-wrap"><p class="dc-muted" style="padding:8px">Loading…</p></div>`;
     try { this.data = await API.get('getTrainingNeedInbox', { token: this.token(), year: this._year }); this.render(); }
-    catch (e) { c.innerHTML = `<div class="dc-wrap"><p style="color:#b91c1c;padding:8px">โหลดไม่สำเร็จ: ${trnEsc(e.message || '')}</p></div>`; }
+    catch (e) { c.innerHTML = `<div class="dc-wrap"><p style="color:#b91c1c;padding:8px">Failed to load: ${trnEsc(e.message || '')}</p></div>`; }
   },
 
   render() {
     const d = this.data, counts = d.counts || {};
     const yNow = new Date().getFullYear();
     const years = []; for (let y = yNow + 1; y >= yNow - 3; y--) years.push(y);
-    const yearSel = `<select class="dc-in" id="tnYear" style="width:auto">${years.map(y => `<option value="${y}" ${y === this._year ? 'selected' : ''}>ประจำปี ${y}</option>`).join('')}</select>`;
-    const dl = d.deadline ? `<span class="dc-muted" style="font-size:12.5px">กำหนดส่ง: <b>${trnEsc(d.deadline)}</b>${d.deadlineClosed ? ' <span style="color:#b91c1c">(ปิดรับแล้ว)</span>' : ''}</span>` : '<span class="dc-faint" style="font-size:12.5px;color:#9ca3af">ยังไม่ตั้งกำหนดส่ง</span>';
-    const dlBtn = d.canApprove ? `<button class="dc-btn dc-ghost" id="tnDeadline" type="button" style="padding:4px 12px;font-size:12px">⚙ ตั้ง Deadline</button>` : '';
+    const yearSel = `<select class="dc-in" id="tnYear" style="width:auto">${years.map(y => `<option value="${y}" ${y === this._year ? 'selected' : ''}>Year ${y}</option>`).join('')}</select>`;
+    const dl = d.deadline ? `<span class="dc-muted" style="font-size:12.5px">Deadline: <b>${trnEsc(d.deadline)}</b>${d.deadlineClosed ? ' <span style="color:#b91c1c">(Closed)</span>' : ''}</span>` : '<span class="dc-faint" style="font-size:12.5px;color:#9ca3af">No deadline set</span>';
+    const dlBtn = d.canApprove ? `<button class="dc-btn dc-ghost" id="tnDeadline" type="button" style="padding:4px 12px;font-size:12px">⚙ Set Deadline</button>` : '';
     const tabs = TN_TABS.map(([id, label]) => `<button class="dc-tab${this._tab === id ? ' on' : ''}" data-tab="${id}">${label}<span class="dc-count">${counts[id] || 0}</span></button>`).join('');
     const c = document.getElementById('pageContent');
     c.innerHTML = `<div class="dc-wrap">
       <div class="dc-ph" style="margin-bottom:10px"><div><h1 style="margin:0">Training Needs</h1>
-        <p class="dc-muted" style="margin:4px 0 0">แบบสำรวจความต้องการฝึกอบรม (FM-HR-03)</p></div>
-        <button class="dc-btn dc-primary" id="tnNew" type="button" ${d.deadlineClosed && !d.canApprove ? 'disabled title="ปิดรับแล้ว"' : ''}>+ New Need</button></div>
+        <p class="dc-muted" style="margin:4px 0 0">Training Needs Survey (FM-HR-03)</p></div>
+        <button class="dc-btn dc-primary" id="tnNew" type="button" ${d.deadlineClosed && !d.canApprove ? 'disabled title="Closed"' : ''}>+ New Need</button></div>
       <div style="display:flex;gap:14px;align-items:center;margin-bottom:12px;flex-wrap:wrap">${yearSel}${dl}${dlBtn}</div>
       <div class="dc-tabs">${tabs}</div>
       <div class="dc-card" id="tnList"></div>
@@ -327,10 +327,10 @@ const TrainingNeeds = {
   deadlineModal() {
     const self = this, year = this._year, cur = (this.data && this.data.deadline) || '';
     const scrim = document.createElement('div'); scrim.className = 'dc-scrim';
-    scrim.innerHTML = `<div class="dc-modal"><h3 style="margin:0 0 4px">กำหนดส่ง Training Needs ปี ${year}</h3>
-      <p class="dc-muted" style="font-size:12px;margin:0 0 12px">เว้นว่าง = เปิดรับตลอด (ไม่มีกำหนด)</p>
+    scrim.innerHTML = `<div class="dc-modal"><h3 style="margin:0 0 4px">Training Needs Deadline — Year ${year}</h3>
+      <p class="dc-muted" style="font-size:12px;margin:0 0 12px">Leave blank = open (no deadline)</p>
       <input type="date" class="dc-in" id="tnDl" value="${trnEsc(cur)}"><div id="tnDlErr"></div>
-      <div class="dc-bar"><button class="dc-btn dc-ghost" id="tnDlX" type="button">Cancel</button><button class="dc-btn dc-primary" id="tnDlOk" type="button">บันทึก</button></div></div>`;
+      <div class="dc-bar"><button class="dc-btn dc-ghost" id="tnDlX" type="button">Cancel</button><button class="dc-btn dc-primary" id="tnDlOk" type="button">Save</button></div></div>`;
     document.body.appendChild(scrim);
     const close = () => scrim.remove();
     scrim.querySelector('#tnDlX').addEventListener('click', close);
@@ -338,16 +338,16 @@ const TrainingNeeds = {
       const val = scrim.querySelector('#tnDl').value;
       const ok = scrim.querySelector('#tnDlOk'); ok.disabled = true; ok.textContent = '…';
       API.post('setTrainingNeedDeadline', { token: self.token(), year: year, deadline: val })
-        .then(() => { close(); self.toast('ตั้ง Deadline แล้ว'); self.load(); })
-        .catch(ex => { ok.disabled = false; ok.textContent = 'บันทึก'; scrim.querySelector('#tnDlErr').innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'ล้มเหลว')}</div>`; });
+        .then(() => { close(); self.toast('Deadline saved'); self.load(); })
+        .catch(ex => { ok.disabled = false; ok.textContent = 'Save'; scrim.querySelector('#tnDlErr').innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'Failed')}</div>`; });
     });
   },
 
   renderList() {
     const box = document.getElementById('tnList');
     const items = ((this.data && this.data.inbox) || {})[this._tab] || [];
-    if (!items.length) { box.innerHTML = `<p class="dc-faint" style="padding:6px;color:#9ca3af">ไม่มีรายการ</p>`; return; }
-    box.innerHTML = `<table class="dc-tbl"><thead><tr><th>ฝ่าย</th><th>หลักสูตร</th><th>ประเภท</th><th>จำนวน</th><th>Priority</th><th>สถานะ</th></tr></thead><tbody>${items.map(o => `
+    if (!items.length) { box.innerHTML = `<p class="dc-faint" style="padding:6px;color:#9ca3af">No items</p>`; return; }
+    box.innerHTML = `<table class="dc-tbl"><thead><tr><th>Department</th><th>Course</th><th>Type</th><th>Qty</th><th>Priority</th><th>Status</th></tr></thead><tbody>${items.map(o => `
       <tr class="dc-row" data-id="${trnEsc(o.NeedID)}">
         <td>${trnEsc(this.deptName(o.DepartmentID))}</td>
         <td>${trnEsc(o.CourseName)} <span class="dc-faint">${trnEsc(String(o.TargetGroup || '').slice(0, 24))}</span></td>
@@ -363,30 +363,43 @@ const TrainingNeeds = {
     this.css();
     const ed = !!existing;
     const g = k => ed ? trnEsc(existing[k] || '') : '';
-    const canAll = this.data && this.data.canApprove;   // HR sees all depts; others locked to home dept
+    const seesAll = !!(this.data && this.data.seesAll);   // ALL scope → pick any dept; others locked to home dept
+    const home = String((this.data && this.data.homeDept) || '').trim();
+    const curDept = ed ? String(existing.DepartmentID || '').trim() : home;   // default: user's own department
     const depIds = Object.keys(Training.deptMap);
-    const deptField = canAll
-      ? `<select class="dc-in" id="tnDept">${depIds.map(id => `<option value="${trnEsc(id)}" ${ed && String(existing.DepartmentID).trim() === id ? 'selected' : ''}>${trnEsc(Training.deptMap[id])}</option>`).join('')}</select>`
-      : `<input class="dc-in" id="tnDept" value="${ed ? trnEsc(existing.DepartmentID) : ''}" readonly placeholder="ฝ่ายของคุณ (อัตโนมัติ)">`;
-    const courseOpts = `<option value="">— พิมพ์เองด้านล่าง —</option>` + (Training._courses || []).map(cc => `<option value="${trnEsc(cc.CourseID)}" ${ed && String(existing.CourseID).trim() === String(cc.CourseID) ? 'selected' : ''}>${trnEsc(cc.CourseCode)} · ${trnEsc(cc.CourseName)}</option>`).join('');
+    const deptField = seesAll
+      ? `<select class="dc-in" id="tnDept">${depIds.map(id => `<option value="${trnEsc(id)}" ${curDept === id ? 'selected' : ''}>${trnEsc(Training.deptMap[id])}</option>`).join('')}</select>`
+      : `<input class="dc-in" value="${trnEsc(this.deptName(curDept) || curDept || '—')}" readonly title="Your department (auto)"><input type="hidden" id="tnDept" value="${trnEsc(curDept)}">`;
+    const courseOpts = `<option value="">— type manually below —</option>` + (Training._courses || []).map(cc => `<option value="${trnEsc(cc.CourseID)}" ${ed && String(existing.CourseID).trim() === String(cc.CourseID) ? 'selected' : ''}>${trnEsc(cc.CourseCode)} · ${trnEsc(cc.CourseName)}</option>`).join('');
     const sel = (id, list, cur, blank) => `<select class="dc-in" id="${id}">${blank ? `<option value="">${blank}</option>` : ''}${list.map(o => `<option value="${o[0]}" ${String(cur || '').toUpperCase() === o[0] ? 'selected' : ''}>${o[1]}</option>`).join('')}</select>`;
     const c = document.getElementById('pageContent');
     c.innerHTML = `<div class="dc-wrap"><button class="dc-back" id="tnBack">← Back</button>
       <div class="dc-card">
-        <h1 style="margin:0 0 16px;font-size:20px">${ed ? 'Edit Training Need' : 'New Training Need'} <span class="dc-muted" style="font-size:14px">ประจำปี ${this._year}</span></h1>
+        <h1 style="margin:0 0 16px;font-size:20px">${ed ? 'Edit Training Need' : 'New Training Need'} <span class="dc-muted" style="font-size:14px">Year ${this._year}</span></h1>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-          <div class="dc-field"><label>ฝ่าย <span class="dc-req">*</span></label>${deptField}</div>
+          <div class="dc-field"><label>Department <span class="dc-req">*</span></label>${deptField}</div>
           <div class="dc-field"><label>Priority</label>${sel('tnPriority', TN_PRIORITY, ed ? existing.Priority : 'MEDIUM')}</div>
-          <div class="dc-field dc-span2"><label>หลักสูตร (เลือกจากแคตตาล็อก)</label><select class="dc-in" id="tnCourse">${courseOpts}</select></div>
-          <div class="dc-field"><label>หรือพิมพ์ชื่อหลักสูตรเอง</label><input class="dc-in" id="tnCourseName" value="${ed && !existing.CourseID ? g('CourseName') : ''}"></div>
-          <div class="dc-field"><label>ประเภท (ถ้าพิมพ์เอง)</label>${sel('tnType', TRN_COURSE_TYPES, ed && !existing.CourseID ? existing.TrainingType : '', '—')}</div>
-          <div class="dc-field"><label>กลุ่มเป้าหมาย</label><input class="dc-in" id="tnTarget" value="${g('TargetGroup')}"></div>
-          <div class="dc-field"><label>จำนวนคน</label><input type="number" min="0" class="dc-in" id="tnHead" value="${g('Headcount')}"></div>
-          <div class="dc-field dc-span2"><label>เหตุผล/ความจำเป็น <span class="dc-req">*</span></label><textarea class="dc-in" id="tnReason" rows="2">${g('Reason')}</textarea></div>
+          <div class="dc-field dc-span2"><label>Course (from catalog)</label><select class="dc-in" id="tnCourse">${courseOpts}</select></div>
+          <div class="dc-field"><label>Or type a course name</label><input class="dc-in" id="tnCourseName" value="${ed && !existing.CourseID ? g('CourseName') : ''}"></div>
+          <div class="dc-field"><label>Training Type <span class="dc-req">*</span> <span class="dc-muted" style="font-weight:400;font-size:11px">(when typed manually)</span></label>${sel('tnType', TRN_COURSE_TYPES, ed && !existing.CourseID ? existing.TrainingType : '', '— select —')}</div>
+          <div class="dc-field"><label>Target Group</label><input class="dc-in" id="tnTarget" value="${g('TargetGroup')}"></div>
+          <div class="dc-field"><label>Headcount</label><input type="number" min="0" class="dc-in" id="tnHead" value="${g('Headcount')}"></div>
+          <div class="dc-field dc-span2"><label>Reason / Justification <span class="dc-req">*</span></label><textarea class="dc-in" id="tnReason" rows="2">${g('Reason')}</textarea></div>
         </div>
         <div id="tnErr"></div>
         <div class="dc-bar"><button class="dc-btn dc-ghost" id="tnCancel" type="button">Cancel</button><button class="dc-btn dc-primary" id="tnSave" type="button">${ed ? 'Save changes' : 'Create (DRAFT)'}</button></div>
       </div></div><div class="dc-toast" id="dcToast"></div>`;
+    // Keep Training Type in sync with catalog choice: a catalog course carries its own type, so lock the select then.
+    const courseEl = document.getElementById('tnCourse'), typeEl = document.getElementById('tnType');
+    const syncType = () => {
+      const picked = courseEl.value;
+      if (picked) {
+        const cc = (Training._courses || []).find(x => String(x.CourseID) === String(picked));
+        if (cc && cc.CourseType) typeEl.value = String(cc.CourseType).toUpperCase();
+        typeEl.disabled = true;
+      } else { typeEl.disabled = false; }
+    };
+    courseEl.addEventListener('change', syncType); syncType();
     const back = () => ed ? this.openDetail(existing.NeedID) : this.load();
     document.getElementById('tnBack').addEventListener('click', back);
     document.getElementById('tnCancel').addEventListener('click', back);
@@ -397,14 +410,15 @@ const TrainingNeeds = {
     const err = document.getElementById('tnErr');
     const v = id => (document.getElementById(id) || {}).value;
     const payload = { token: this.token(), needId: needId || undefined, Year: this._year, DepartmentID: (v('tnDept') || '').trim(), CourseID: v('tnCourse'), CourseName: (v('tnCourseName') || '').trim(), TrainingType: v('tnType'), TargetGroup: (v('tnTarget') || '').trim(), Headcount: v('tnHead'), Priority: v('tnPriority'), Reason: (v('tnReason') || '').trim() };
-    if (!payload.DepartmentID) { err.innerHTML = '<div class="dc-err">กรุณาระบุฝ่าย</div>'; return; }
-    if (!payload.CourseID && !payload.CourseName) { err.innerHTML = '<div class="dc-err">เลือกหลักสูตร หรือพิมพ์ชื่อหลักสูตร</div>'; return; }
-    if (!payload.Reason) { err.innerHTML = '<div class="dc-err">กรุณากรอกเหตุผล/ความจำเป็น</div>'; return; }
+    if (!payload.DepartmentID) { err.innerHTML = '<div class="dc-err">Department is required</div>'; return; }
+    if (!payload.CourseID && !payload.CourseName) { err.innerHTML = '<div class="dc-err">Pick a course from the catalog, or type a course name</div>'; return; }
+    if (!payload.CourseID && !payload.TrainingType) { err.innerHTML = '<div class="dc-err">Training Type is required</div>'; return; }
+    if (!payload.Reason) { err.innerHTML = '<div class="dc-err">Reason / justification is required</div>'; return; }
     const btn = document.getElementById('tnSave'); btn.disabled = true; btn.textContent = 'Processing…';
     try {
-      if (needId) { await API.post('updateTrainingNeed', payload); this.toast('บันทึกแล้ว'); this.openDetail(needId); }
-      else { const r = await API.post('createTrainingNeed', payload); this.toast('สร้างแล้ว'); this.openDetail(r.needId); }
-    } catch (ex) { btn.disabled = false; btn.textContent = needId ? 'Save changes' : 'Create (DRAFT)'; err.innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'ล้มเหลว')}</div>`; }
+      if (needId) { await API.post('updateTrainingNeed', payload); this.toast('Saved'); this.openDetail(needId); }
+      else { const r = await API.post('createTrainingNeed', payload); this.toast('Created'); this.openDetail(r.needId); }
+    } catch (ex) { btn.disabled = false; btn.textContent = needId ? 'Save changes' : 'Create (DRAFT)'; err.innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'Failed')}</div>`; }
   },
 
   async openDetail(needId) {
@@ -422,30 +436,30 @@ const TrainingNeeds = {
     const b = [];
     if (actions.indexOf('edit') !== -1) b.push(btn('edit', 'Edit', 'dc-ghost'));
     if (actions.indexOf('submit') !== -1) b.push(btn('submit', 'Submit', 'dc-primary'));
-    if (actions.indexOf('deptApprove') !== -1) b.push(btn('deptApprove', 'อนุมัติ (หัวหน้าฝ่าย)', 'dc-primary'));
-    if (actions.indexOf('deptReject') !== -1) b.push(btn('deptReject', 'ตีกลับ', 'dc-danger'));
-    if (actions.indexOf('hrInPlan') !== -1) b.push(btn('hrInPlan', 'เข้าแผนปี', 'dc-primary'));
-    if (actions.indexOf('hrCancel') !== -1) b.push(btn('hrCancel', 'ไม่เข้าแผน', 'dc-danger'));
-    if (actions.indexOf('hrReject') !== -1) b.push(btn('hrReject', 'ตีกลับผู้สร้าง', 'dc-danger'));
-    if (actions.indexOf('cancel') !== -1) b.push(btn('cancel', 'ยกเลิก', 'dc-danger'));
+    if (actions.indexOf('deptApprove') !== -1) b.push(btn('deptApprove', 'Approve (Manager)', 'dc-primary'));
+    if (actions.indexOf('deptReject') !== -1) b.push(btn('deptReject', 'Reject', 'dc-danger'));
+    if (actions.indexOf('hrInPlan') !== -1) b.push(btn('hrInPlan', 'Accept into Plan', 'dc-primary'));
+    if (actions.indexOf('hrCancel') !== -1) b.push(btn('hrCancel', 'Not in Plan', 'dc-danger'));
+    if (actions.indexOf('hrReject') !== -1) b.push(btn('hrReject', 'Reject to Creator', 'dc-danger'));
+    if (actions.indexOf('cancel') !== -1) b.push(btn('cancel', 'Cancel', 'dc-danger'));
     const tl = (history || []).map(h => `<li><span class="dot"></span><div class="act">${trnEsc(h.Action)}</div><div class="meta">${trnEsc(h.ActorName)} · ${trnDate(h.Timestamp)}${h.Comment ? ' · ' + trnEsc(h.Comment) : ''}</div></li>`).join('');
     const c = document.getElementById('pageContent');
     c.innerHTML = `<div class="dc-wrap"><button class="dc-back" id="tnBack">← Back</button>
       <div class="dc-card">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
-          <div><h1 style="margin:0;font-size:20px">${trnEsc(t.CourseName)}</h1><p class="dc-muted" style="margin:4px 0 0">ประจำปี ${trnEsc(t.Year)} · ${trnEsc(this.deptName(t.DepartmentID))}</p></div>
+          <div><h1 style="margin:0;font-size:20px">${trnEsc(t.CourseName)}</h1><p class="dc-muted" style="margin:4px 0 0">Year ${trnEsc(t.Year)} · ${trnEsc(this.deptName(t.DepartmentID))}</p></div>
           <div>${tnBadge(t.Status)}</div>
         </div>
         <div class="dc-kv" style="margin-top:14px">
-          ${kv('ประเภท', trnEsc(trnLabel(TRN_COURSE_TYPES, t.TrainingType)))}
-          ${kv('กลุ่มเป้าหมาย', trnEsc(t.TargetGroup))}
-          ${kv('จำนวนคน', trnEsc(t.Headcount))}
+          ${kv('Type', trnEsc(trnLabel(TRN_COURSE_TYPES, t.TrainingType)))}
+          ${kv('Target Group', trnEsc(t.TargetGroup))}
+          ${kv('Headcount', trnEsc(t.Headcount))}
           ${kv('Priority', trnEsc(trnLabel(TN_PRIORITY, t.Priority)))}
-          ${kv('เหตุผล/ความจำเป็น', trnEsc(t.Reason))}
-          ${kv('ผู้สร้าง', trnEsc(t.CreatedByName))}
-          ${t.DeptApprovedByName ? kv('หัวหน้าฝ่ายอนุมัติ', trnEsc(t.DeptApprovedByName) + ' · ' + trnDate(t.DeptApprovedDate)) : ''}
-          ${t.HrDecisionByName ? kv('HR พิจารณา', trnEsc(t.HrDecisionByName) + ' · ' + trnDate(t.HrDecisionDate)) : ''}
-          ${t.DecisionReason ? kv('เหตุผล', trnEsc(t.DecisionReason)) : ''}
+          ${kv('Reason / Justification', trnEsc(t.Reason))}
+          ${kv('Created by', trnEsc(t.CreatedByName))}
+          ${t.DeptApprovedByName ? kv('Manager approved', trnEsc(t.DeptApprovedByName) + ' · ' + trnDate(t.DeptApprovedDate)) : ''}
+          ${t.HrDecisionByName ? kv('HR decision', trnEsc(t.HrDecisionByName) + ' · ' + trnDate(t.HrDecisionDate)) : ''}
+          ${t.DecisionReason ? kv('Decision reason', trnEsc(t.DecisionReason)) : ''}
         </div>
       </div>
       ${b.length ? `<div class="dc-card"><h2 style="margin:0 0 12px;font-size:15px">Actions</h2><div class="dc-actbar">${b.join('')}</div><div id="tnActErr"></div></div>` : ''}
@@ -460,27 +474,27 @@ const TrainingNeeds = {
     document.querySelectorAll('#pageContent [data-act]').forEach(bt => bt.addEventListener('click', () => {
       const a = bt.dataset.act;
       if (a === 'edit') self.openForm(t);
-      else if (a === 'submit') self.run('submitTrainingNeed', { needId: id }, 'ส่งแล้ว', bt);
-      else if (a === 'deptApprove') self.run('approveTrainingNeedDept', { needId: id, decision: 'APPROVE' }, 'อนุมัติแล้ว', bt);
-      else if (a === 'hrInPlan') self.run('decideTrainingNeed', { needId: id, decision: 'IN_PLAN' }, 'เข้าแผนแล้ว', bt);
-      else if (a === 'deptReject') self.commentModal('ตีกลับผู้สร้าง', 'approveTrainingNeedDept', { needId: id, decision: 'REJECT' }, id);
-      else if (a === 'hrReject') self.commentModal('ตีกลับผู้สร้าง', 'decideTrainingNeed', { needId: id, decision: 'REJECT' }, id);
-      else if (a === 'hrCancel') self.commentModal('ไม่เข้าแผน (ระบุเหตุผล)', 'decideTrainingNeed', { needId: id, decision: 'CANCEL' }, id);
-      else if (a === 'cancel') self.commentModal('ยกเลิกรายการ', 'cancelTrainingNeed', { needId: id }, id);
+      else if (a === 'submit') self.run('submitTrainingNeed', { needId: id }, 'Submitted', bt);
+      else if (a === 'deptApprove') self.run('approveTrainingNeedDept', { needId: id, decision: 'APPROVE' }, 'Approved', bt);
+      else if (a === 'hrInPlan') self.run('decideTrainingNeed', { needId: id, decision: 'IN_PLAN' }, 'Accepted into plan', bt);
+      else if (a === 'deptReject') self.commentModal('Reject to Creator', 'approveTrainingNeedDept', { needId: id, decision: 'REJECT' }, id);
+      else if (a === 'hrReject') self.commentModal('Reject to Creator', 'decideTrainingNeed', { needId: id, decision: 'REJECT' }, id);
+      else if (a === 'hrCancel') self.commentModal('Not in Plan (reason required)', 'decideTrainingNeed', { needId: id, decision: 'CANCEL' }, id);
+      else if (a === 'cancel') self.commentModal('Cancel this need', 'cancelTrainingNeed', { needId: id }, id);
     }));
   },
 
   async run(action, payload, ok, bt) {
     let prev = ''; if (bt) { prev = bt.textContent; bt.disabled = true; bt.textContent = 'Processing…'; }
     try { await API.post(action, Object.assign({ token: this.token() }, payload)); this.toast(ok); this.openDetail(payload.needId); }
-    catch (ex) { const e = document.getElementById('tnActErr'); if (e) e.innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'ล้มเหลว')}</div>`; if (bt) { bt.disabled = false; bt.textContent = prev; } }
+    catch (ex) { const e = document.getElementById('tnActErr'); if (e) e.innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'Failed')}</div>`; if (bt) { bt.disabled = false; bt.textContent = prev; } }
   },
 
   commentModal(title, action, payload, needId) {
     const self = this;
     const scrim = document.createElement('div'); scrim.className = 'dc-scrim';
     scrim.innerHTML = `<div class="dc-modal"><h3 style="margin:0 0 12px">${title}</h3>
-      <label style="font-size:12.5px;font-weight:600;display:block;margin-bottom:4px">เหตุผล <span class="dc-req">*</span></label>
+      <label style="font-size:12.5px;font-weight:600;display:block;margin-bottom:4px">Reason <span class="dc-req">*</span></label>
       <textarea class="dc-in" id="tnCmt" rows="3"></textarea><div id="tnCmtErr"></div>
       <div class="dc-bar"><button class="dc-btn dc-ghost" id="tnCmtX" type="button">Cancel</button><button class="dc-btn dc-primary" id="tnCmtOk" type="button">Confirm</button></div></div>`;
     document.body.appendChild(scrim);
@@ -488,11 +502,11 @@ const TrainingNeeds = {
     scrim.querySelector('#tnCmtX').addEventListener('click', close);
     scrim.querySelector('#tnCmtOk').addEventListener('click', () => {
       const cmt = scrim.querySelector('#tnCmt').value.trim();
-      if (!cmt) { scrim.querySelector('#tnCmtErr').innerHTML = '<div class="dc-err">กรุณาใส่เหตุผล</div>'; return; }
+      if (!cmt) { scrim.querySelector('#tnCmtErr').innerHTML = '<div class="dc-err">Reason is required</div>'; return; }
       const ok = scrim.querySelector('#tnCmtOk'); ok.disabled = true; ok.textContent = 'Processing…';
       API.post(action, Object.assign({ token: self.token(), comment: cmt }, payload))
-        .then(() => { close(); self.toast('ดำเนินการแล้ว'); self.openDetail(needId); })
-        .catch(ex => { ok.disabled = false; ok.textContent = 'Confirm'; scrim.querySelector('#tnCmtErr').innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'ล้มเหลว')}</div>`; });
+        .then(() => { close(); self.toast('Done'); self.openDetail(needId); })
+        .catch(ex => { ok.disabled = false; ok.textContent = 'Confirm'; scrim.querySelector('#tnCmtErr').innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'Failed')}</div>`; });
     });
   }
 };
