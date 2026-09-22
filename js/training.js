@@ -363,12 +363,17 @@ const TrainingNeeds = {
     this.css();
     const ed = !!existing;
     const g = k => ed ? trnEsc(existing[k] || '') : '';
-    const seesAll = !!(this.data && this.data.seesAll);   // ALL scope → pick any dept; others locked to home dept
+    const seesAll = !!(this.data && this.data.seesAll);   // ALL scope → any dept; manager → depts they manage; user → own dept
     const home = String((this.data && this.data.homeDept) || '').trim();
-    const curDept = ed ? String(existing.DepartmentID || '').trim() : home;   // default: user's own department
-    const depIds = Object.keys(Training.deptMap);
-    const deptField = seesAll
-      ? `<select class="dc-in" id="tnDept">${depIds.map(id => `<option value="${trnEsc(id)}" ${curDept === id ? 'selected' : ''}>${trnEsc(Training.deptMap[id])}</option>`).join('')}</select>`
+    const managed = ((this.data && this.data.managedDepts) || []).map(x => String(x).trim()).filter(Boolean);
+    // Departments this user may request for: everyone if ALL scope; else own dept + every dept they manage.
+    let allowed;
+    if (seesAll) allowed = Object.keys(Training.deptMap);
+    else { const seen = {}; allowed = []; managed.concat(home ? [home] : []).forEach(id => { if (id && !seen[id]) { seen[id] = 1; allowed.push(id); } }); }
+    const curDept = ed ? String(existing.DepartmentID || '').trim() : (allowed.indexOf(home) !== -1 ? home : (allowed[0] || home));
+    if (curDept && allowed.indexOf(curDept) === -1) allowed.push(curDept);   // keep the record's own dept selectable when editing
+    const deptField = (seesAll || allowed.length > 1)
+      ? `<select class="dc-in" id="tnDept">${allowed.map(id => `<option value="${trnEsc(id)}" ${curDept === id ? 'selected' : ''}>${trnEsc(Training.deptMap[id] || id)}</option>`).join('')}</select>`
       : `<input class="dc-in" value="${trnEsc(this.deptName(curDept) || curDept || '—')}" readonly title="Your department (auto)"><input type="hidden" id="tnDept" value="${trnEsc(curDept)}">`;
     const courseOpts = `<option value="">— type manually below —</option>` + (Training._courses || []).map(cc => `<option value="${trnEsc(cc.CourseID)}" ${ed && String(existing.CourseID).trim() === String(cc.CourseID) ? 'selected' : ''}>${trnEsc(cc.CourseCode)} · ${trnEsc(cc.CourseName)}</option>`).join('');
     const sel = (id, list, cur, blank) => `<select class="dc-in" id="${id}">${blank ? `<option value="">${blank}</option>` : ''}${list.map(o => `<option value="${o[0]}" ${String(cur || '').toUpperCase() === o[0] ? 'selected' : ''}>${o[1]}</option>`).join('')}</select>`;
