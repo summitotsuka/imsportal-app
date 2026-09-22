@@ -317,6 +317,12 @@ const TN_STATUS = {
   IN_PLAN: ['In Plan', 'dc-b-ok'], CANCELLED: ['Not in Plan', 'dc-b-cancel']
 };
 function tnBadge(st) { const m = TN_STATUS[String(st || '').toUpperCase()] || [st || '—', 'dc-b-off']; return `<span class="dc-badge ${m[1]}">${m[0]}</span>`; }
+/* Participant groups (Group Of Participant) — stored as pipe-joined keys, shown title-cased. */
+function tnGrpLabel(g) { g = String(g || '').trim(); return g ? g.charAt(0) + g.slice(1).toLowerCase() : g; }
+function tnGroupList(val) { return String(val || '').split('|').map(s => s.trim()).filter(Boolean); }
+function tnGroupsText(val) { return tnGroupList(val).map(tnGrpLabel).join(', '); }
+function tnGroupsCheck(val) { return tnGroupList(val).map(g => '☑ ' + tnGrpLabel(g)).join('  '); }
+function tnMoney(v) { const n = Number(v); return (v === '' || v == null || isNaN(n)) ? '' : n.toLocaleString('en-US'); }
 
 const TN_RPT_MODES = [['DECIDED', 'Decided (In / Not in Plan)'], ['IN_PLAN', 'In Plan only'], ['CANCELLED', 'Not in Plan only'], ['ALL', 'All statuses']];
 const TrainingNeeds = {
@@ -411,7 +417,7 @@ const TrainingNeeds = {
       return `<tr>
         <td class="c" style="width:34px">${i + 1}</td>
         <td>${trnEsc(o.CourseName)}</td>
-        <td style="width:150px">${trnEsc(o.TargetGroup)}</td>
+        <td style="width:150px;font-size:10px">${trnEsc(tnGroupsCheck(o.TargetGroup))}</td>
         <td class="c" style="width:46px">${trnEsc(o.Headcount)}</td>
         <td class="c" style="width:78px">${trnEsc(status(o.Status))}</td>
         <td style="width:160px">${trnEsc(remark)}</td></tr>`;
@@ -450,8 +456,8 @@ const TrainingNeeds = {
     const rows = this._reportRows(this._printMode);
     if (!rows.length) { this.toast('No items for this status'); return; }
     const status = st => (TN_STATUS[String(st || '').toUpperCase()] || [st || ''])[0];
-    const header = ['Year', 'Department', 'Course', 'Type', 'Attendees', 'Headcount', 'Priority', 'Status', 'Reason', 'Decision reason', 'Created by', 'HR decision by', 'HR decision date'];
-    const body = rows.map(o => [o.Year, this.deptName(o.DepartmentID), o.CourseName, trnLabel(TRN_COURSE_TYPES, o.TrainingType), o.TargetGroup, o.Headcount, trnLabel(TN_PRIORITY, o.Priority), status(o.Status), o.Reason, o.DecisionReason, o.CreatedByName, o.HrDecisionByName, trnDate(o.HrDecisionDate)]);
+    const header = ['Year', 'Department', 'Course', 'Type', 'Group Of Participant', 'Times', 'Hours', 'Headcount', 'Budget', 'Priority', 'Status', 'Reason', 'Decision reason', 'Created by', 'HR decision by', 'HR decision date'];
+    const body = rows.map(o => [o.Year, this.deptName(o.DepartmentID), o.CourseName, trnLabel(TRN_COURSE_TYPES, o.TrainingType), tnGroupsText(o.TargetGroup), o.Times, o.PeriodHours, o.Headcount, tnMoney(o.Budget), trnLabel(TN_PRIORITY, o.Priority), status(o.Status), o.Reason, o.DecisionReason, o.CreatedByName, o.HrDecisionByName, trnDate(o.HrDecisionDate)]);
     trnCsv('training-needs-' + this._year + '.csv', header, body);
   },
 
@@ -481,7 +487,7 @@ const TrainingNeeds = {
     box.innerHTML = `<table class="dc-tbl"><thead><tr><th>Department</th><th>Course</th><th>Type</th><th>Qty</th><th>Priority</th><th>Status</th></tr></thead><tbody>${items.map(o => `
       <tr class="dc-row" data-id="${trnEsc(o.NeedID)}">
         <td>${trnEsc(this.deptName(o.DepartmentID))}</td>
-        <td>${trnEsc(o.CourseName)} <span class="dc-faint">${trnEsc(String(o.TargetGroup || '').slice(0, 24))}</span></td>
+        <td>${trnEsc(o.CourseName)} <span class="dc-faint">${trnEsc(tnGroupsText(o.TargetGroup))}</span></td>
         <td>${trnEsc(trnLabel(TRN_COURSE_TYPES, o.TrainingType))}</td>
         <td class="dc-faint">${o.Headcount || '—'}</td>
         <td>${trnEsc(trnLabel(TN_PRIORITY, o.Priority))}</td>
@@ -508,6 +514,9 @@ const TrainingNeeds = {
       : `<input class="dc-in" value="${trnEsc(this.deptName(curDept) || curDept || '—')}" readonly title="Your department (auto)"><input type="hidden" id="tnDept" value="${trnEsc(curDept)}">`;
     const courseOpts = `<option value="">— type manually below —</option>` + (Training._courses || []).map(cc => `<option value="${trnEsc(cc.CourseID)}" ${ed && String(existing.CourseID).trim() === String(cc.CourseID) ? 'selected' : ''}>${trnEsc(cc.CourseCode)} · ${trnEsc(cc.CourseName)}</option>`).join('');
     const sel = (id, list, cur, blank) => `<select class="dc-in" id="${id}">${blank ? `<option value="">${blank}</option>` : ''}${list.map(o => `<option value="${o[0]}" ${String(cur || '').toUpperCase() === o[0] ? 'selected' : ''}>${o[1]}</option>`).join('')}</select>`;
+    const groupOpts = (this.data && this.data.participantGroups) || [];
+    const chosen = ed ? tnGroupList(String(existing.TargetGroup || '').toUpperCase()) : [];
+    const groupBoxes = groupOpts.map(gk => `<label style="display:inline-flex;align-items:center;gap:4px;margin-right:16px;font-weight:400;white-space:nowrap"><input type="checkbox" class="tnGrp" value="${trnEsc(gk)}" ${chosen.indexOf(gk) !== -1 ? 'checked' : ''}> ${trnEsc(tnGrpLabel(gk))}</label>`).join('') || '<span class="dc-faint" style="color:#9ca3af">No groups configured</span>';
     const c = document.getElementById('pageContent');
     c.innerHTML = `<div class="dc-wrap"><button class="dc-back" id="tnBack">← Back</button>
       <div class="dc-card">
@@ -518,8 +527,12 @@ const TrainingNeeds = {
           <div class="dc-field dc-span2"><label>Course (from catalog)</label><select class="dc-in" id="tnCourse">${courseOpts}</select></div>
           <div class="dc-field"><label>Or type a course name</label><input class="dc-in" id="tnCourseName" value="${ed && !existing.CourseID ? g('CourseName') : ''}"></div>
           <div class="dc-field"><label>Training Type <span class="dc-req">*</span> <span class="dc-muted" style="font-weight:400;font-size:11px">(when typed manually)</span></label>${sel('tnType', TRN_COURSE_TYPES, ed && !existing.CourseID ? existing.TrainingType : '', '— select —')}</div>
-          <div class="dc-field"><label>Target Group</label><input class="dc-in" id="tnTarget" value="${g('TargetGroup')}"></div>
+          <div class="dc-field dc-span2"><label>Group Of Participant <span class="dc-req">*</span></label>
+            <div style="display:flex;flex-wrap:wrap;gap:2px 4px;padding:6px 0">${groupBoxes}</div></div>
+          <div class="dc-field"><label>Times (จำนวนครั้ง) <span class="dc-req">*</span></label><input type="number" min="1" step="1" class="dc-in" id="tnTimes" value="${ed ? trnEsc(existing.Times || '') : '1'}"></div>
+          <div class="dc-field"><label>Period — hours (ชั่วโมง) <span class="dc-req">*</span></label><input type="number" min="0" step="0.5" class="dc-in" id="tnHours" value="${g('PeriodHours')}"></div>
           <div class="dc-field"><label>Headcount</label><input type="number" min="0" class="dc-in" id="tnHead" value="${g('Headcount')}"></div>
+          <div class="dc-field"><label>Budget <span class="dc-muted" style="font-weight:400;font-size:11px">(internal — HR fills before the plan)</span></label><input type="number" min="0" step="0.01" class="dc-in" id="tnBudget" value="${g('Budget')}"></div>
           <div class="dc-field dc-span2"><label>Reason / Justification <span class="dc-req">*</span></label><textarea class="dc-in" id="tnReason" rows="2">${g('Reason')}</textarea></div>
         </div>
         <div id="tnErr"></div>
@@ -545,10 +558,14 @@ const TrainingNeeds = {
   async submitForm(needId) {
     const err = document.getElementById('tnErr');
     const v = id => (document.getElementById(id) || {}).value;
-    const payload = { token: this.token(), needId: needId || undefined, Year: this._year, DepartmentID: (v('tnDept') || '').trim(), CourseID: v('tnCourse'), CourseName: (v('tnCourseName') || '').trim(), TrainingType: v('tnType'), TargetGroup: (v('tnTarget') || '').trim(), Headcount: v('tnHead'), Priority: v('tnPriority'), Reason: (v('tnReason') || '').trim() };
+    const groups = Array.prototype.slice.call(document.querySelectorAll('.tnGrp')).filter(x => x.checked).map(x => x.value).join('|');
+    const payload = { token: this.token(), needId: needId || undefined, Year: this._year, DepartmentID: (v('tnDept') || '').trim(), CourseID: v('tnCourse'), CourseName: (v('tnCourseName') || '').trim(), TrainingType: v('tnType'), TargetGroup: groups, Times: v('tnTimes'), PeriodHours: v('tnHours'), Budget: (v('tnBudget') || '').trim(), Headcount: v('tnHead'), Priority: v('tnPriority'), Reason: (v('tnReason') || '').trim() };
     if (!payload.DepartmentID) { err.innerHTML = '<div class="dc-err">Department is required</div>'; return; }
     if (!payload.CourseID && !payload.CourseName) { err.innerHTML = '<div class="dc-err">Pick a course from the catalog, or type a course name</div>'; return; }
     if (!payload.CourseID && !payload.TrainingType) { err.innerHTML = '<div class="dc-err">Training Type is required</div>'; return; }
+    if (!groups) { err.innerHTML = '<div class="dc-err">Select at least one participant group</div>'; return; }
+    if (!(Number(payload.Times) > 0)) { err.innerHTML = '<div class="dc-err">Times (จำนวนครั้ง) is required</div>'; return; }
+    if (!(Number(payload.PeriodHours) > 0)) { err.innerHTML = '<div class="dc-err">Period hours (ชั่วโมง) is required</div>'; return; }
     if (!payload.Reason) { err.innerHTML = '<div class="dc-err">Reason / justification is required</div>'; return; }
     const btn = document.getElementById('tnSave'); btn.disabled = true; btn.textContent = 'Processing…';
     try {
@@ -588,8 +605,10 @@ const TrainingNeeds = {
         </div>
         <div class="dc-kv" style="margin-top:14px">
           ${kv('Type', trnEsc(trnLabel(TRN_COURSE_TYPES, t.TrainingType)))}
-          ${kv('Target Group', trnEsc(t.TargetGroup))}
+          ${kv('Group Of Participant', trnEsc(tnGroupsText(t.TargetGroup)))}
+          ${kv('Times / Hours', trnEsc(t.Times) + ' × ' + trnEsc(t.PeriodHours) + ' hr')}
           ${kv('Headcount', trnEsc(t.Headcount))}
+          ${t.Budget !== '' && t.Budget != null ? kv('Budget', trnEsc(tnMoney(t.Budget))) : ''}
           ${kv('Priority', trnEsc(trnLabel(TN_PRIORITY, t.Priority)))}
           ${kv('Reason / Justification', trnEsc(t.Reason))}
           ${kv('Created by', trnEsc(t.CreatedByName))}
