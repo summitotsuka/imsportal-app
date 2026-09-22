@@ -9,6 +9,43 @@ function trnLabel(list, v) { const f = list.find(x => x[0] === String(v).toUpper
 function trnFileUrl(id) { return 'https://drive.google.com/file/d/' + encodeURIComponent(id) + '/view'; }
 function trnReadFile(file) { return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res({ base64: String(r.result).split(',')[1], mimeType: file.type || 'application/octet-stream', fileName: file.name }); r.onerror = () => rej(new Error('อ่านไฟล์ไม่ได้')); r.readAsDataURL(file); }); }
 
+/** Open a print-ready window; wait for images (logo) so nothing prints half-loaded. */
+function trnPrint(title, pageRule, bodyHtml) {
+  const w = window.open('', '_blank');
+  if (!w) { alert('Browser blocked the print window — please allow pop-ups and try again.'); return; }
+  w.document.write(`<!doctype html><html lang="th"><head><meta charset="utf-8"><title>${trnEsc(title)}</title><style>
+    @page{${pageRule}}
+    *{box-sizing:border-box}
+    body{font-family:system-ui,-apple-system,"Segoe UI",Sarabun,Tahoma,sans-serif;color:#0b0b0b;margin:0;font-size:11px;line-height:1.4}
+    table{border-collapse:collapse;width:100%}
+    .hdr td{border:1px solid #000;padding:2px 5px;vertical-align:middle}
+    .hdr .k{width:74px;font-size:9.5px;color:#000;background:#f4f3f0}
+    .hdr .v{width:64px;text-align:center;font-size:10px}
+    .meta{margin:9px 0 6px;font-size:12px}
+    .grid th,.grid td{border:1px solid #000;padding:4px 6px;vertical-align:top;text-align:left}
+    .grid th{background:#f0efec;font-weight:600;text-align:center;font-size:11px}
+    .grid td.c{text-align:center}
+    .note{margin-top:12px;font-size:10.5px;line-height:1.7}
+    .fm{padding-bottom:4px}
+    tr,img{break-inside:avoid;page-break-inside:avoid}
+  </style></head><body>${bodyHtml}<script>
+  (function(){var i=Array.prototype.slice.call(document.images),n=i.length;
+  function go(){setTimeout(function(){window.focus();window.print();},350);}
+  if(!n)return go();function d(){if(--n<=0)go();}
+  i.forEach(function(m){if(m.complete)d();else{m.onload=d;m.onerror=d;}});})();
+  <\/script></body></html>`);
+  w.document.close();
+}
+
+/** CSV with a BOM so Excel opens Thai correctly. */
+function trnCsv(filename, header, rows) {
+  const esc = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+  const body = [header.map(esc).join(',')].concat(rows.map(r => r.map(esc).join(','))).join('\r\n');
+  const blob = new Blob(['﻿' + body], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+}
+
 const Training = {
   deptMap: {},
   token() { return AUTH.getToken(); },
@@ -281,8 +318,9 @@ const TN_STATUS = {
 };
 function tnBadge(st) { const m = TN_STATUS[String(st || '').toUpperCase()] || [st || '—', 'dc-b-off']; return `<span class="dc-badge ${m[1]}">${m[0]}</span>`; }
 
+const TN_RPT_MODES = [['DECIDED', 'Decided (In / Not in Plan)'], ['IN_PLAN', 'In Plan only'], ['CANCELLED', 'Not in Plan only'], ['ALL', 'All statuses']];
 const TrainingNeeds = {
-  _tab: 'inProgress', _year: new Date().getFullYear(),
+  _tab: 'inProgress', _year: new Date().getFullYear(), _printMode: 'DECIDED',
   token() { return AUTH.getToken(); },
   css() { if (typeof DocumentsPage !== 'undefined' && DocumentsPage.injectCss) DocumentsPage.injectCss(); },
   toast(m) { return Training.toast(m); },
@@ -306,13 +344,17 @@ const TrainingNeeds = {
     const yearSel = `<select class="dc-in" id="tnYear" style="width:auto">${years.map(y => `<option value="${y}" ${y === this._year ? 'selected' : ''}>Year ${y}</option>`).join('')}</select>`;
     const dl = d.deadline ? `<span class="dc-muted" style="font-size:12.5px">Deadline: <b>${trnEsc(d.deadline)}</b>${d.deadlineClosed ? ' <span style="color:#b91c1c">(Closed)</span>' : ''}</span>` : '<span class="dc-faint" style="font-size:12.5px;color:#9ca3af">No deadline set</span>';
     const dlBtn = d.canApprove ? `<button class="dc-btn dc-ghost" id="tnDeadline" type="button" style="padding:4px 12px;font-size:12px">⚙ Set Deadline</button>` : '';
+    const modeSel = `<select class="dc-in" id="tnRptMode" title="Which statuses to print / export" style="width:auto;font-size:12px;padding:4px 8px">${TN_RPT_MODES.map(m => `<option value="${m[0]}" ${this._printMode === m[0] ? 'selected' : ''}>${m[1]}</option>`).join('')}</select>`;
+    const printBtns = `<span style="margin-left:auto;display:inline-flex;gap:8px;align-items:center">${modeSel}
+      <button class="dc-btn dc-ghost" id="tnCsv" type="button" style="padding:4px 12px;font-size:12px">⬇ CSV</button>
+      <button class="dc-btn dc-ghost" id="tnPrint" type="button" style="padding:4px 12px;font-size:12px">🖨 Print FM-HR-03</button></span>`;
     const tabs = TN_TABS.map(([id, label]) => `<button class="dc-tab${this._tab === id ? ' on' : ''}" data-tab="${id}">${label}<span class="dc-count">${counts[id] || 0}</span></button>`).join('');
     const c = document.getElementById('pageContent');
     c.innerHTML = `<div class="dc-wrap">
       <div class="dc-ph" style="margin-bottom:10px"><div><h1 style="margin:0">Training Needs</h1>
         <p class="dc-muted" style="margin:4px 0 0">Training Needs Survey (FM-HR-03)</p></div>
         <button class="dc-btn dc-primary" id="tnNew" type="button" ${d.deadlineClosed && !d.canApprove ? 'disabled title="Closed"' : ''}>+ New Need</button></div>
-      <div style="display:flex;gap:14px;align-items:center;margin-bottom:12px;flex-wrap:wrap">${yearSel}${dl}${dlBtn}</div>
+      <div style="display:flex;gap:14px;align-items:center;margin-bottom:12px;flex-wrap:wrap">${yearSel}${dl}${dlBtn}${printBtns}</div>
       <div class="dc-tabs">${tabs}</div>
       <div class="dc-card" id="tnList"></div>
     </div><div class="dc-toast" id="dcToast"></div>`;
@@ -321,7 +363,96 @@ const TrainingNeeds = {
     c.querySelectorAll('.dc-tabs [data-tab]').forEach(b => b.addEventListener('click', () => { this._tab = b.dataset.tab; this.render(); }));
     const db = document.getElementById('tnDeadline');
     if (db) db.addEventListener('click', () => this.deadlineModal());
+    const ms = document.getElementById('tnRptMode'); if (ms) ms.addEventListener('change', e => { this._printMode = e.target.value; });
+    const pb = document.getElementById('tnPrint'); if (pb) pb.addEventListener('click', () => this.printForms());
+    const cb = document.getElementById('tnCsv'); if (cb) cb.addEventListener('click', () => this.exportCsv());
     this.renderList();
+  },
+
+  /** Needs to print / export for a status mode, within the current year scope, from the loaded inbox. */
+  _reportRows(mode) {
+    const box = (this.data && this.data.inbox) || {};
+    const inPlan = box.inPlan || [];
+    const notInPlan = (box.cancelled || []).filter(o => String(o.HrDecisionBy || '').trim());  // HR-decided "Not in Plan" only
+    switch (String(mode || 'DECIDED').toUpperCase()) {
+      case 'IN_PLAN': return inPlan.slice();
+      case 'CANCELLED': return notInPlan.slice();
+      case 'ALL': return (box.inProgress || []).concat(inPlan, box.cancelled || []);   // every status, no overlap
+      default: return inPlan.concat(notInPlan);   // DECIDED
+    }
+  },
+
+  async ensureLogo() {
+    if (TrainingNeeds._logo !== undefined) return TrainingNeeds._logo;
+    try { const r = await API.get('getCompanyLogo', { token: this.token() }); TrainingNeeds._logo = r.logo || ''; }
+    catch (e) { TrainingNeeds._logo = ''; }
+    return TrainingNeeds._logo;
+  },
+
+  async printForms() {
+    const rows = this._reportRows(this._printMode);
+    if (!rows.length) { this.toast('No items to print for this status'); return; }
+    const logo = await this.ensureLogo();
+    // group by department, department name from the shared map
+    const groups = {};
+    rows.forEach(o => { const d = String(o.DepartmentID || '').trim() || '—'; (groups[d] = groups[d] || []).push(o); });
+    const depIds = Object.keys(groups).sort((a, b) => (this.deptName(a) || a).localeCompare(this.deptName(b) || b, 'th'));
+    const body = depIds.map((d, i) => this.formHtml(d, groups[d], logo, i > 0)).join('');
+    trnPrint('FM-HR-03 · Training Needs ' + this._year, 'size: A4 portrait; margin: 10mm;', body);
+  },
+
+  /** One FM-HR-03 sheet (a department's decided needs). pageBreak=true starts it on a new page. */
+  formHtml(depId, list, logo, pageBreak) {
+    const status = st => (TN_STATUS[String(st || '').toUpperCase()] || [st || ''])[0];
+    const dataRows = list.map((o, i) => {
+      const reason = String(o.Status).toUpperCase() === 'CANCELLED' ? (o.DecisionReason || o.Reason || '') : (o.Reason || '');
+      const pr = trnLabel(TN_PRIORITY, o.Priority);
+      const remark = (pr ? '[' + pr + '] ' : '') + reason;   // หมายเหตุ = Priority + เหตุผล
+      return `<tr>
+        <td class="c" style="width:34px">${i + 1}</td>
+        <td>${trnEsc(o.CourseName)}</td>
+        <td style="width:150px">${trnEsc(o.TargetGroup)}</td>
+        <td class="c" style="width:46px">${trnEsc(o.Headcount)}</td>
+        <td class="c" style="width:78px">${trnEsc(status(o.Status))}</td>
+        <td style="width:160px">${trnEsc(remark)}</td></tr>`;
+    }).join('');
+    const pad = Math.max(0, 12 - list.length);
+    const padRows = new Array(pad).fill('<tr><td class="c" style="height:22px">&nbsp;</td><td></td><td></td><td></td><td></td><td></td></tr>').join('');
+    // Logo aspect 1024×428 (≈2.39:1) — fix height, let width follow so it never distorts.
+    const logoCell = logo ? `<img src="${logo}" alt="SOM" style="height:40px;width:auto;max-width:130px;border:0;display:block;margin:0 auto">` : '<b style="font-size:15px">SOM</b>';
+    return `<section class="fm" style="${pageBreak ? 'page-break-before:always;' : ''}">
+      <table class="hdr">
+        <tr>
+          <td rowspan="4" style="width:140px;text-align:center;padding:6px">${logoCell}</td>
+          <td rowspan="4" style="text-align:center"><div style="font-weight:700">บริษัท ซัมมิท โอซูกะ แมนูแฟคเจอริ่ง จำกัด</div>
+            <div style="font-size:9px">SUMMIT OTSUKA MANUFACTURING CO., LTD.</div>
+            <div style="margin-top:6px;font-weight:700">แบบสำรวจความต้องการฝึกอบรม</div></td>
+          <td class="k">เลขที่เอกสาร</td><td class="v"><b>FM-HR-03</b></td>
+          <td class="k">หน้า</td><td class="v"></td>
+        </tr>
+        <tr><td class="k">วันที่ออกใช้</td><td class="v">31/03/08</td><td class="k">ผู้รายงาน</td><td class="v"></td></tr>
+        <tr><td class="k">ออกครั้งที่</td><td class="v">A</td><td class="k">ผู้ทบทวน</td><td class="v"></td></tr>
+        <tr><td class="k">แก้ไขครั้งที่</td><td class="v">00</td><td class="k">ผู้อนุมัติ</td><td class="v"></td></tr>
+      </table>
+      <div class="meta">ฝ่าย / แผนก : <b>${trnEsc(this.deptName(depId))}</b> &nbsp;&nbsp; ประจำปี : <b>${trnEsc(this._year)}</b></div>
+      <table class="grid">
+        <thead><tr><th style="width:34px">ลำดับ</th><th>หลักสูตรที่ต้องการฝึกอบรม</th><th style="width:150px">ผู้ที่จะอบรม</th>
+          <th style="width:46px">จำนวน</th><th style="width:78px">สถานะ</th><th style="width:150px">หมายเหตุ</th></tr></thead>
+        <tbody>${dataRows}${padRows}</tbody>
+      </table>
+      <div class="note"><u>คำชี้แจง</u>
+        <div>1. ให้ผู้บังคับบัญชาหรือผู้ที่รับมอบหมายพิจารณา กำหนดหลักสูตรหรือความต้องการในการฝึกอบรม</div>
+        <div>2. กำหนดหลักสูตรหรือความต้องการฝึกอบรม และส่งต้นฉบับให้ฝ่ายบุคคลจัดเก็บ</div></div>
+    </section>`;
+  },
+
+  exportCsv() {
+    const rows = this._reportRows(this._printMode);
+    if (!rows.length) { this.toast('No items for this status'); return; }
+    const status = st => (TN_STATUS[String(st || '').toUpperCase()] || [st || ''])[0];
+    const header = ['Year', 'Department', 'Course', 'Type', 'Attendees', 'Headcount', 'Priority', 'Status', 'Reason', 'Decision reason', 'Created by', 'HR decision by', 'HR decision date'];
+    const body = rows.map(o => [o.Year, this.deptName(o.DepartmentID), o.CourseName, trnLabel(TRN_COURSE_TYPES, o.TrainingType), o.TargetGroup, o.Headcount, trnLabel(TN_PRIORITY, o.Priority), status(o.Status), o.Reason, o.DecisionReason, o.CreatedByName, o.HrDecisionByName, trnDate(o.HrDecisionDate)]);
+    trnCsv('training-needs-' + this._year + '.csv', header, body);
   },
 
   deadlineModal() {
