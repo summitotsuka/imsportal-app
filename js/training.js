@@ -525,13 +525,13 @@ const TrainingNeeds = {
           <div class="dc-field"><label>Department <span class="dc-req">*</span></label>${deptField}</div>
           <div class="dc-field"><label>Priority</label>${sel('tnPriority', TN_PRIORITY, ed ? existing.Priority : 'MEDIUM')}</div>
           <div class="dc-field dc-span2"><label>Course (from catalog)</label><select class="dc-in" id="tnCourse">${courseOpts}</select></div>
-          <div class="dc-field"><label>Or type a course name</label><input class="dc-in" id="tnCourseName" value="${ed && !existing.CourseID ? g('CourseName') : ''}"></div>
+          <div class="dc-field"><label>Or type a course name <span class="dc-req">*</span> <span class="dc-muted" style="font-weight:400;font-size:11px">(if not from catalog)</span></label><input class="dc-in" id="tnCourseName" value="${ed && !existing.CourseID ? g('CourseName') : ''}"></div>
           <div class="dc-field"><label>Training Type <span class="dc-req">*</span> <span class="dc-muted" style="font-weight:400;font-size:11px">(when typed manually)</span></label>${sel('tnType', TRN_COURSE_TYPES, ed && !existing.CourseID ? existing.TrainingType : '', '— select —')}</div>
           <div class="dc-field dc-span2"><label>Group Of Participant <span class="dc-req">*</span></label>
             <div style="display:flex;flex-wrap:wrap;gap:2px 4px;padding:6px 0">${groupBoxes}</div></div>
           <div class="dc-field"><label>Times (จำนวนครั้ง) <span class="dc-req">*</span></label><input type="number" min="1" step="1" class="dc-in" id="tnTimes" value="${ed ? trnEsc(existing.Times || '') : '1'}"></div>
           <div class="dc-field"><label>Period — hours (ชั่วโมง) <span class="dc-req">*</span></label><input type="number" min="0" step="0.5" class="dc-in" id="tnHours" value="${g('PeriodHours')}"></div>
-          <div class="dc-field"><label>Headcount</label><input type="number" min="0" class="dc-in" id="tnHead" value="${g('Headcount')}"></div>
+          <div class="dc-field"><label>Headcount <span class="dc-req">*</span></label><input type="number" min="1" step="1" class="dc-in" id="tnHead" value="${g('Headcount')}"></div>
           <div class="dc-field"><label>Budget <span class="dc-muted" style="font-weight:400;font-size:11px">(internal — HR fills before the plan)</span></label><input type="number" min="0" step="0.01" class="dc-in" id="tnBudget" value="${g('Budget')}"></div>
           <div class="dc-field dc-span2"><label>Reason / Justification <span class="dc-req">*</span></label><textarea class="dc-in" id="tnReason" rows="2">${g('Reason')}</textarea></div>
         </div>
@@ -566,6 +566,7 @@ const TrainingNeeds = {
     if (!groups) { err.innerHTML = '<div class="dc-err">Select at least one participant group</div>'; return; }
     if (!(Number(payload.Times) > 0)) { err.innerHTML = '<div class="dc-err">Times (จำนวนครั้ง) is required</div>'; return; }
     if (!(Number(payload.PeriodHours) > 0)) { err.innerHTML = '<div class="dc-err">Period hours (ชั่วโมง) is required</div>'; return; }
+    if (!(Number(payload.Headcount) > 0)) { err.innerHTML = '<div class="dc-err">Headcount is required</div>'; return; }
     if (!payload.Reason) { err.innerHTML = '<div class="dc-err">Reason / justification is required</div>'; return; }
     const btn = document.getElementById('tnSave'); btn.disabled = true; btn.textContent = 'Processing…';
     try {
