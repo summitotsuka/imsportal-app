@@ -438,6 +438,12 @@ function navigateTo(page) {
 
       break;
 
+    case 'training-needs':
+
+      loadTrainingNeeds();
+
+      break;
+
 
     default:
 
