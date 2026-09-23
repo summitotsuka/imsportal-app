@@ -668,3 +668,334 @@ const TrainingNeeds = {
 };
 
 function loadTrainingNeeds() { Training._courses = null; Training.loadCourseOptions().then(() => TrainingNeeds.load()); }
+
+/* ==================== Annual Training Plan (FM-HR-04) — Phase 2b ==================== */
+const TP_STATUS = {
+  DRAFT: ['Waiting for Submit', 'dc-b-off'], SUBMITTED: ['Waiting for Check', 'dc-b-info'],
+  CHECKED: ['Waiting for Approve', 'dc-b-warn'], APPROVED: ['Approved', 'dc-b-ok'], CANCELLED: ['Cancelled', 'dc-b-cancel']
+};
+const TP_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function tpBadge(st) { const m = TP_STATUS[String(st || '').toUpperCase()] || [st || '—', 'dc-b-off']; return `<span class="dc-badge ${m[1]}">${m[0]}</span>`; }
+function tpWeeks(pw) { return String(pw || '').split(',').map(s => s.trim()).filter(Boolean); }
+function tpWeeksText(pw) { return tpWeeks(pw).map(k => { const p = k.split('-'); return (TP_MONTHS[(+p[0]) - 1] || p[0]) + '·' + p[1]; }).join('  '); }
+
+const TrainingPlan = {
+  _year: new Date().getFullYear(),
+  token() { return AUTH.getToken(); },
+  css() { if (typeof DocumentsPage !== 'undefined' && DocumentsPage.injectCss) DocumentsPage.injectCss(); },
+  toast(m) { return Training.toast(m); },
+  deptName(id) { return Training.deptName(id); },
+
+  async load(year) {
+    if (year) this._year = year;
+    this.css();
+    await Training.ensureDepts(); await Training.loadCourseOptions();
+    const c = document.getElementById('pageContent');
+    c.innerHTML = `<div class="dc-wrap"><p class="dc-muted" style="padding:8px">Loading…</p></div>`;
+    try { this.data = await API.get('getTrainingPlan', { token: this.token(), year: this._year }); this.render(); }
+    catch (e) { c.innerHTML = `<div class="dc-wrap"><p style="color:#b91c1c;padding:8px">Failed to load: ${trnEsc(e.message || '')}</p></div>`; }
+  },
+
+  yearBar() {
+    const yNow = new Date().getFullYear();
+    const years = []; for (let y = yNow + 1; y >= yNow - 3; y--) years.push(y);
+    return `<select class="dc-in" id="tpYear" style="width:auto">${years.map(y => `<option value="${y}" ${y === this._year ? 'selected' : ''}>Year ${y}</option>`).join('')}</select>`;
+  },
+
+  render() {
+    const d = this.data, p = d.plan, c = document.getElementById('pageContent');
+    if (!p) {
+      c.innerHTML = `<div class="dc-wrap">
+        <div class="dc-ph" style="margin-bottom:10px"><div><h1 style="margin:0">Annual Training Plan</h1>
+          <p class="dc-muted" style="margin:4px 0 0">Training Yearly Plan (FM-HR-04)</p></div></div>
+        <div style="display:flex;gap:12px;align-items:center;margin-bottom:14px">${this.yearBar()}</div>
+        <div class="dc-card" style="text-align:center;padding:32px">
+          <p class="dc-muted" style="margin:0 0 14px">No plan for year ${this._year}.</p>
+          ${d.canCreate ? `<button class="dc-btn dc-primary" id="tpCreate" type="button">+ Create Plan ${this._year}</button>` : '<p class="dc-faint" style="color:#9ca3af">You do not have permission to create a plan.</p>'}
+        </div></div><div class="dc-toast" id="dcToast"></div>`;
+      document.getElementById('tpYear').addEventListener('change', e => this.load(parseInt(e.target.value, 10)));
+      const cb = document.getElementById('tpCreate'); if (cb) cb.addEventListener('click', () => this.createPlan());
+      return;
+    }
+    const a = d.actions || [];
+    const btn = (id, label, cls) => `<button class="dc-btn ${cls}" id="${id}" type="button" style="padding:5px 14px;font-size:12.5px">${label}</button>`;
+    const actBtns = [];
+    if (a.indexOf('edit') !== -1) actBtns.push(btn('tpEdit', 'Edit header', 'dc-ghost'));
+    if (a.indexOf('addNeeds') !== -1) actBtns.push(btn('tpAddNeeds', '↓ Pull from Needs', 'dc-ghost'));
+    if (a.indexOf('addItem') !== -1) actBtns.push(btn('tpAddItem', '+ Add item', 'dc-ghost'));
+    if (a.indexOf('submit') !== -1) actBtns.push(btn('tpSubmit', 'Submit', 'dc-primary'));
+    if (a.indexOf('check') !== -1) actBtns.push(btn('tpCheck', 'Check (HR Mgr)', 'dc-primary'));
+    if (a.indexOf('checkReject') !== -1) actBtns.push(btn('tpCheckRej', 'Reject', 'dc-danger'));
+    if (a.indexOf('approve') !== -1) actBtns.push(btn('tpApprove', 'Approve (QMS)', 'dc-primary'));
+    if (a.indexOf('approveReject') !== -1) actBtns.push(btn('tpApproveRej', 'Reject', 'dc-danger'));
+    if (a.indexOf('cancel') !== -1) actBtns.push(btn('tpCancel', 'Cancel plan', 'dc-danger'));
+
+    const sig = (t, name, date) => `<div style="flex:1"><div class="dc-faint" style="font-size:11px">${t}</div><div style="font-weight:600">${trnEsc(name) || '—'}</div><div class="dc-faint" style="font-size:11px">${date ? trnDate(date) : ''}</div></div>`;
+    c.innerHTML = `<div class="dc-wrap">
+      <div class="dc-ph" style="margin-bottom:10px"><div><h1 style="margin:0">Annual Training Plan</h1>
+        <p class="dc-muted" style="margin:4px 0 0">Training Yearly Plan (FM-HR-04)</p></div>
+        <span style="display:inline-flex;gap:8px;align-items:center">${this.yearBar()}
+          <button class="dc-btn dc-ghost" id="tpCsv" type="button" style="padding:4px 12px;font-size:12px">⬇ CSV</button>
+          <button class="dc-btn dc-ghost" id="tpPrint" type="button" style="padding:4px 12px;font-size:12px">🖨 Print A3</button></span></div>
+
+      <div class="dc-card">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+          <div><h2 style="margin:0;font-size:17px">${trnEsc(p.Title)}</h2>
+            <p class="dc-muted" style="margin:4px 0 0">To: <b>${trnEsc(p.ToText)}</b>${p.CcText ? ' · CC: ' + trnEsc(p.CcText) : ''}${p.Revision ? ' · Rev ' + trnEsc(p.Revision) : ''}${p.IssuedDate ? ' · Issued ' + trnEsc(p.IssuedDate) : ''}</p></div>
+          <div>${tpBadge(p.Status)}</div>
+        </div>
+        <div class="sig" style="display:flex;gap:16px;margin-top:14px;border-top:1px solid #eee;padding-top:12px">
+          ${sig('Issued by', p.IssuedByName, p.IssuedDate2)}${sig('Checked by', p.CheckedByName, p.CheckedDate)}${sig('Approved by', p.ApprovedByName, p.ApprovedDate)}
+          <div style="flex:1;text-align:right"><div class="dc-faint" style="font-size:11px">Total budget</div><div style="font-weight:700;font-size:16px">${tnMoney(d.budget) || '0'}</div></div>
+        </div>
+        ${p.DecisionReason ? `<div class="dc-muted" style="margin-top:8px;font-size:12.5px">Note: ${trnEsc(p.DecisionReason)}</div>` : ''}
+        ${actBtns.length ? `<div class="dc-actbar" style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">${actBtns.join('')}</div><div id="tpActErr"></div>` : ''}
+      </div>
+
+      <div class="dc-card" id="tpItems"></div>
+    </div><div class="dc-toast" id="dcToast"></div>`;
+
+    document.getElementById('tpYear').addEventListener('change', e => this.load(parseInt(e.target.value, 10)));
+    document.getElementById('tpPrint').addEventListener('click', () => this.print());
+    document.getElementById('tpCsv').addEventListener('click', () => this.csv());
+    const wire = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
+    wire('tpEdit', () => this.headerForm());
+    wire('tpAddNeeds', () => this.needsModal());
+    wire('tpAddItem', () => this.itemForm());
+    wire('tpSubmit', () => this.run('submitTrainingPlan', { planId: p.PlanID }, 'Submitted'));
+    wire('tpCheck', () => this.run('checkTrainingPlan', { planId: p.PlanID, decision: 'APPROVE' }, 'Checked'));
+    wire('tpCheckRej', () => this.commentModal('Reject to HR', 'checkTrainingPlan', { planId: p.PlanID, decision: 'REJECT' }));
+    wire('tpApprove', () => this.run('approveTrainingPlan', { planId: p.PlanID, decision: 'APPROVE' }, 'Approved'));
+    wire('tpApproveRej', () => this.commentModal('Reject to HR', 'approveTrainingPlan', { planId: p.PlanID, decision: 'REJECT' }));
+    wire('tpCancel', () => this.commentModal('Cancel this plan', 'cancelTrainingPlan', { planId: p.PlanID }));
+    this.renderItems();
+  },
+
+  renderItems() {
+    const box = document.getElementById('tpItems');
+    const items = this.data.items || [], editable = (this.data.actions || []).indexOf('addItem') !== -1;
+    if (!items.length) { box.innerHTML = `<p class="dc-faint" style="padding:6px;color:#9ca3af">No items yet${editable ? ' — use “Pull from Needs” or “Add item”.' : '.'}</p>`; return; }
+    box.innerHTML = `<table class="dc-tbl"><thead><tr><th style="width:34px">#</th><th>Subject</th><th>Dept</th><th>Group</th><th>Times</th><th>Hrs</th><th>Head</th><th>Budget</th><th>Schedule</th><th>Remark</th>${editable ? '<th></th>' : ''}</tr></thead><tbody>${items.map((o, i) => `
+      <tr>
+        <td class="dc-faint">${o.Seq || i + 1}</td>
+        <td>${trnEsc(o.Subject)}${o.SourceNeedID ? ' <span class="dc-faint" style="font-size:10px">(from need)</span>' : ''}</td>
+        <td>${trnEsc(this.deptName(o.DepartmentID))}</td>
+        <td class="dc-faint" style="font-size:11.5px">${trnEsc(tnGroupsText(o.Groups))}</td>
+        <td class="dc-faint">${trnEsc(o.Times)}</td>
+        <td class="dc-faint">${trnEsc(o.PeriodHours)}</td>
+        <td class="dc-faint">${trnEsc(o.Headcount)}</td>
+        <td class="dc-faint">${(o.Budget === '' || o.Budget == null) ? '<span style="color:#b91c1c">—</span>' : tnMoney(o.Budget)}</td>
+        <td class="dc-faint" style="font-size:11px">${trnEsc(tpWeeksText(o.PlanWeeks)) || '—'}</td>
+        <td class="dc-faint" style="font-size:11px">${trnEsc(o.Remark)}</td>
+        ${editable ? `<td style="white-space:nowrap"><button class="dc-btn dc-ghost" data-ed="${trnEsc(o.ItemID)}" type="button" style="padding:2px 8px;font-size:11px">Edit</button> <button class="dc-btn dc-ghost" data-del="${trnEsc(o.ItemID)}" type="button" style="padding:2px 8px;font-size:11px;color:#b91c1c">✕</button></td>` : ''}
+      </tr>`).join('')}</tbody></table>`;
+    if (editable) {
+      box.querySelectorAll('[data-ed]').forEach(b => b.addEventListener('click', () => this.itemForm(items.filter(x => String(x.ItemID) === b.dataset.ed)[0])));
+      box.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => this.deleteItem(b.dataset.del)));
+    }
+  },
+
+  async createPlan() {
+    try { await API.post('createTrainingPlan', { token: this.token(), Year: this._year }); this.toast('Plan created'); this.load(); }
+    catch (e) { this.toast((e && e.message) || 'Failed'); }
+  },
+
+  headerForm() {
+    const p = this.data.plan;
+    const scrim = document.createElement('div'); scrim.className = 'dc-scrim';
+    const row = (id, label, val) => `<div class="dc-field" style="margin-bottom:8px"><label>${label}</label><input class="dc-in" id="${id}" value="${trnEsc(val || '')}"></div>`;
+    scrim.innerHTML = `<div class="dc-modal" style="max-width:480px"><h3 style="margin:0 0 12px">Edit plan header</h3>
+      ${row('tpTitle', 'Title', p.Title)}${row('tpTo', 'To', p.ToText)}${row('tpCc', 'CC', p.CcText)}
+      <div style="display:flex;gap:10px">${row('tpRev', 'Revision', p.Revision)}${row('tpIss', 'Issued date', p.IssuedDate)}</div>
+      <div id="tpHErr"></div><div class="dc-bar"><button class="dc-btn dc-ghost" id="tpHX" type="button">Cancel</button><button class="dc-btn dc-primary" id="tpHOk" type="button">Save</button></div></div>`;
+    document.body.appendChild(scrim);
+    const close = () => scrim.remove();
+    scrim.querySelector('#tpHX').addEventListener('click', close);
+    scrim.querySelector('#tpHOk').addEventListener('click', () => {
+      const g = id => (scrim.querySelector('#' + id) || {}).value || '';
+      const ok = scrim.querySelector('#tpHOk'); ok.disabled = true; ok.textContent = '…';
+      API.post('updateTrainingPlan', { token: this.token(), planId: p.PlanID, Title: g('tpTitle'), ToText: g('tpTo'), CcText: g('tpCc'), Revision: g('tpRev'), IssuedDate: g('tpIss') })
+        .then(() => { close(); this.toast('Saved'); this.load(); })
+        .catch(ex => { ok.disabled = false; ok.textContent = 'Save'; scrim.querySelector('#tpHErr').innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'Failed')}</div>`; });
+    });
+  },
+
+  weeksGrid(pw) {
+    const set = {}; tpWeeks(pw).forEach(k => set[k] = 1);
+    let rows = '';
+    for (let m = 1; m <= 12; m++) {
+      let cells = '';
+      for (let w = 1; w <= 4; w++) { const k = m + '-' + w; cells += `<td style="text-align:center"><input type="checkbox" class="tpWk" value="${k}" ${set[k] ? 'checked' : ''}></td>`; }
+      rows += `<tr><td style="font-size:11px;padding-right:6px">${TP_MONTHS[m - 1]}</td>${cells}</tr>`;
+    }
+    return `<table style="border-collapse:collapse;font-size:11px"><thead><tr><th></th><th>W1</th><th>W2</th><th>W3</th><th>W4</th></tr></thead><tbody>${rows}</tbody></table>`;
+  },
+
+  itemForm(existing) {
+    const ed = !!existing, p = this.data.plan;
+    const g = k => ed ? trnEsc(existing[k] || '') : '';
+    const groupOpts = this.data.participantGroups || [];
+    const chosen = ed ? tnGroupList(String(existing.Groups || '').toUpperCase()) : [];
+    const groupBoxes = groupOpts.map(gk => `<label style="display:inline-flex;align-items:center;gap:4px;margin-right:14px;font-weight:400"><input type="checkbox" class="tpGrp" value="${trnEsc(gk)}" ${chosen.indexOf(gk) !== -1 ? 'checked' : ''}> ${trnEsc(tnGrpLabel(gk))}</label>`).join('');
+    const depIds = Object.keys(Training.deptMap);
+    const typeSel = `<select class="dc-in" id="tpiType"><option value="">—</option>${TRN_COURSE_TYPES.map(o => `<option value="${o[0]}" ${ed && String(existing.TrainingType).toUpperCase() === o[0] ? 'selected' : ''}>${o[1]}</option>`).join('')}</select>`;
+    const depSel = `<select class="dc-in" id="tpiDept"><option value="">—</option>${depIds.map(id => `<option value="${trnEsc(id)}" ${ed && String(existing.DepartmentID).trim() === id ? 'selected' : ''}>${trnEsc(Training.deptMap[id])}</option>`).join('')}</select>`;
+    const scrim = document.createElement('div'); scrim.className = 'dc-scrim';
+    scrim.innerHTML = `<div class="dc-modal" style="max-width:640px;max-height:90vh;overflow:auto"><h3 style="margin:0 0 12px">${ed ? 'Edit item' : 'Add item'}</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="dc-field dc-span2"><label>Subject <span class="dc-req">*</span></label><input class="dc-in" id="tpiSubject" value="${g('Subject')}"></div>
+        <div class="dc-field"><label>Type</label>${typeSel}</div>
+        <div class="dc-field"><label>Department</label>${depSel}</div>
+        <div class="dc-field dc-span2"><label>Group Of Participant</label><div style="padding:4px 0">${groupBoxes}</div></div>
+        <div class="dc-field"><label>Times</label><input type="number" min="0" class="dc-in" id="tpiTimes" value="${g('Times')}"></div>
+        <div class="dc-field"><label>Hours</label><input type="number" min="0" step="0.5" class="dc-in" id="tpiHours" value="${g('PeriodHours')}"></div>
+        <div class="dc-field"><label>Headcount</label><input type="number" min="0" class="dc-in" id="tpiHead" value="${g('Headcount')}"></div>
+        <div class="dc-field"><label>Budget</label><input type="number" min="0" step="0.01" class="dc-in" id="tpiBudget" value="${g('Budget')}"></div>
+        <div class="dc-field dc-span2"><label>Schedule (month × week)</label>${this.weeksGrid(ed ? existing.PlanWeeks : '')}</div>
+        <div class="dc-field dc-span2"><label>Remark</label><input class="dc-in" id="tpiRemark" value="${g('Remark')}"></div>
+      </div>
+      <div id="tpiErr"></div><div class="dc-bar"><button class="dc-btn dc-ghost" id="tpiX" type="button">Cancel</button><button class="dc-btn dc-primary" id="tpiOk" type="button">${ed ? 'Save' : 'Add'}</button></div></div>`;
+    document.body.appendChild(scrim);
+    const close = () => scrim.remove();
+    scrim.querySelector('#tpiX').addEventListener('click', close);
+    scrim.querySelector('#tpiOk').addEventListener('click', () => {
+      const v = id => (scrim.querySelector('#' + id) || {}).value;
+      const groups = Array.prototype.slice.call(scrim.querySelectorAll('.tpGrp')).filter(x => x.checked).map(x => x.value).join('|');
+      const weeks = Array.prototype.slice.call(scrim.querySelectorAll('.tpWk')).filter(x => x.checked).map(x => x.value).join(',');
+      const subject = (v('tpiSubject') || '').trim();
+      if (!subject) { scrim.querySelector('#tpiErr').innerHTML = '<div class="dc-err">Subject is required</div>'; return; }
+      const payload = { token: this.token(), Subject: subject, TrainingType: v('tpiType'), DepartmentID: v('tpiDept'), Groups: groups, Times: v('tpiTimes'), PeriodHours: v('tpiHours'), Headcount: v('tpiHead'), Budget: (v('tpiBudget') || '').trim(), PlanWeeks: weeks, Remark: (v('tpiRemark') || '').trim() };
+      const ok = scrim.querySelector('#tpiOk'); ok.disabled = true; ok.textContent = '…';
+      const req = ed ? API.post('updateTrainingPlanItem', Object.assign({ itemId: existing.ItemID }, payload)) : API.post('addTrainingPlanItem', Object.assign({ planId: p.PlanID }, payload));
+      req.then(() => { close(); this.toast(ed ? 'Item saved' : 'Item added'); this.load(); })
+        .catch(ex => { ok.disabled = false; ok.textContent = ed ? 'Save' : 'Add'; scrim.querySelector('#tpiErr').innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'Failed')}</div>`; });
+    });
+  },
+
+  deleteItem(itemId) {
+    if (!window.confirm('Delete this item?')) return;
+    API.post('deleteTrainingPlanItem', { token: this.token(), itemId: itemId }).then(() => { this.toast('Item deleted'); this.load(); }).catch(e => this.toast((e && e.message) || 'Failed'));
+  },
+
+  async needsModal() {
+    const p = this.data.plan;
+    const scrim = document.createElement('div'); scrim.className = 'dc-scrim';
+    scrim.innerHTML = `<div class="dc-modal" style="max-width:640px;max-height:90vh;overflow:auto"><h3 style="margin:0 0 4px">Pull from Training Needs — ${this._year}</h3>
+      <p class="dc-muted" style="font-size:12px;margin:0 0 10px">In-Plan needs not yet in this plan</p><div id="tpNList"><p class="dc-muted">Loading…</p></div>
+      <div id="tpNErr"></div><div class="dc-bar"><button class="dc-btn dc-ghost" id="tpNX" type="button">Cancel</button><button class="dc-btn dc-primary" id="tpNOk" type="button">Add selected</button></div></div>`;
+    document.body.appendChild(scrim);
+    const close = () => scrim.remove();
+    scrim.querySelector('#tpNX').addEventListener('click', close);
+    let cand = [];
+    try { const r = await API.get('getTrainingPlanCandidates', { token: this.token(), year: this._year }); cand = r.candidates || []; }
+    catch (e) { scrim.querySelector('#tpNList').innerHTML = `<div class="dc-err">${trnEsc(e.message || '')}</div>`; return; }
+    if (!cand.length) { scrim.querySelector('#tpNList').innerHTML = `<p class="dc-faint" style="color:#9ca3af">No In-Plan needs available.</p>`; scrim.querySelector('#tpNOk').disabled = true; return; }
+    scrim.querySelector('#tpNList').innerHTML = `<table class="dc-tbl"><thead><tr><th style="width:30px"></th><th>Course</th><th>Dept</th><th>Group</th><th>Head</th></tr></thead><tbody>${cand.map(o => `
+      <tr><td><input type="checkbox" class="tpNChk" value="${trnEsc(o.NeedID)}"></td><td>${trnEsc(o.CourseName)}</td><td>${trnEsc(this.deptName(o.DepartmentID))}</td><td class="dc-faint" style="font-size:11px">${trnEsc(tnGroupsText(o.TargetGroup))}</td><td class="dc-faint">${trnEsc(o.Headcount)}</td></tr>`).join('')}</tbody></table>`;
+    scrim.querySelector('#tpNOk').addEventListener('click', () => {
+      const ids = Array.prototype.slice.call(scrim.querySelectorAll('.tpNChk')).filter(x => x.checked).map(x => x.value);
+      if (!ids.length) { scrim.querySelector('#tpNErr').innerHTML = '<div class="dc-err">Select at least one</div>'; return; }
+      const ok = scrim.querySelector('#tpNOk'); ok.disabled = true; ok.textContent = '…';
+      API.post('addTrainingPlanNeeds', { token: this.token(), planId: p.PlanID, needIds: ids })
+        .then(r => { close(); this.toast((r.added || 0) + ' added'); this.load(); })
+        .catch(ex => { ok.disabled = false; ok.textContent = 'Add selected'; scrim.querySelector('#tpNErr').innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'Failed')}</div>`; });
+    });
+  },
+
+  async run(action, payload, ok) {
+    try { await API.post(action, Object.assign({ token: this.token() }, payload)); this.toast(ok); this.load(); }
+    catch (ex) { const e = document.getElementById('tpActErr'); if (e) e.innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'Failed')}</div>`; else this.toast((ex && ex.message) || 'Failed'); }
+  },
+
+  commentModal(title, action, payload) {
+    const scrim = document.createElement('div'); scrim.className = 'dc-scrim';
+    scrim.innerHTML = `<div class="dc-modal"><h3 style="margin:0 0 12px">${title}</h3>
+      <label style="font-size:12.5px;font-weight:600;display:block;margin-bottom:4px">Reason <span class="dc-req">*</span></label>
+      <textarea class="dc-in" id="tpCmt" rows="3"></textarea><div id="tpCmtErr"></div>
+      <div class="dc-bar"><button class="dc-btn dc-ghost" id="tpCmtX" type="button">Cancel</button><button class="dc-btn dc-primary" id="tpCmtOk" type="button">Confirm</button></div></div>`;
+    document.body.appendChild(scrim);
+    const close = () => scrim.remove();
+    scrim.querySelector('#tpCmtX').addEventListener('click', close);
+    scrim.querySelector('#tpCmtOk').addEventListener('click', () => {
+      const cmt = scrim.querySelector('#tpCmt').value.trim();
+      if (!cmt) { scrim.querySelector('#tpCmtErr').innerHTML = '<div class="dc-err">Reason is required</div>'; return; }
+      const ok = scrim.querySelector('#tpCmtOk'); ok.disabled = true; ok.textContent = '…';
+      API.post(action, Object.assign({ token: this.token(), comment: cmt }, payload))
+        .then(() => { close(); this.toast('Done'); this.load(); })
+        .catch(ex => { ok.disabled = false; ok.textContent = 'Confirm'; scrim.querySelector('#tpCmtErr').innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'Failed')}</div>`; });
+    });
+  },
+
+  async ensureLogo() {
+    if (TrainingPlan._logo !== undefined) return TrainingPlan._logo;
+    try { const r = await API.get('getTrainingPlanLogo', { token: this.token() }); TrainingPlan._logo = r.logo || ''; } catch (e) { TrainingPlan._logo = ''; }
+    return TrainingPlan._logo;
+  },
+
+  async print() {
+    const p = this.data.plan, items = this.data.items || [];
+    if (!items.length) { this.toast('No items to print'); return; }
+    const logo = await this.ensureLogo();
+    trnPrint('FM-HR-04 · ' + (p.Title || ''), 'size: A3 landscape; margin: 8mm;', this.printHtml(p, items, logo));
+  },
+
+  printHtml(p, items, logo) {
+    const groupOpts = this.data.participantGroups || [];
+    const monthHead = TP_MONTHS.map(m => `<th colspan="4" class="mo">${m}</th>`).join('');
+    const weekHead = TP_MONTHS.map(() => '<th class="wk">1</th><th class="wk">2</th><th class="wk">3</th><th class="wk">4</th>').join('');
+    const cell = (set, m, w) => `<td class="c${set[m + '-' + w] ? ' on' : ''}"></td>`;
+    const rows = items.map((o, i) => {
+      const set = {}; tpWeeks(o.PlanWeeks).forEach(k => set[k] = 1);
+      let planCells = '', actualCells = '';
+      for (let m = 1; m <= 12; m++) for (let w = 1; w <= 4; w++) { planCells += cell(set, m, w); actualCells += '<td class="c"></td>'; }
+      const gset = {}; tnGroupList(o.Groups).forEach(k => gset[String(k).toUpperCase()] = 1);
+      const grpCells = groupOpts.map(g => `<td rowspan="2" class="c${gset[String(g).toUpperCase()] ? ' on' : ''}"></td>`).join('');
+      return `<tr><td rowspan="2" class="c">${o.Seq || i + 1}</td><td rowspan="2" class="sub">${trnEsc(o.Subject)}</td>
+        <td rowspan="2" class="c">${trnEsc(o.Times)}</td><td rowspan="2" class="c">${trnEsc(o.PeriodHours)}</td>
+        <td class="pa">Plan</td>${planCells}${grpCells}<td rowspan="2" class="rmk">${trnEsc(o.Remark)}</td></tr>
+        <tr><td class="pa">Actual</td>${actualCells}</tr>`;
+    }).join('');
+    const logoCell = logo ? `<img src="${logo}" alt="SOM" style="height:34px;width:auto">` : '<b>SOM</b>';
+    return `<style>
+      .p4{font-size:8.5px}.p4 table{border-collapse:collapse;width:100%}.p4 td,.p4 th{border:1px solid #000;padding:1px 2px}
+      .p4 .top{border:none;padding:0}.p4 .hd{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px}
+      .p4 .sigbox td,.p4 .sigbox th{font-size:8px;padding:2px 4px}
+      .p4 th.mo{font-size:8px}.p4 th.wk{width:9px;font-size:7px;padding:0}.p4 td.c{width:9px;text-align:center}
+      .p4 td.c.on{background:#1f5fbf}.p4 td.pa{font-size:7.5px;white-space:nowrap}.p4 .sub{min-width:150px}
+      .p4 th.gp{font-size:6.5px;writing-mode:vertical-rl;transform:rotate(180deg);width:12px}.p4 .grpwrap{padding:0}
+      .p4 .rmk{min-width:70px}.p4 .foot td{height:16px}
+    </style>
+    <div class="p4">
+      <div class="hd">
+        <div style="display:flex;gap:10px;align-items:center">${logoCell}<div><div style="font-weight:700">SUMMIT OTSUKA MANUFACTURING CO.,LTD.</div>
+          <div style="font-size:11px;font-weight:700">${trnEsc(p.Title)}</div>
+          <div style="margin-top:3px">To: ${trnEsc(p.ToText)} &nbsp; CC: ${trnEsc(p.CcText)}</div>
+          <div>Revision: ${trnEsc(p.Revision)} &nbsp; Issued date: ${trnEsc(p.IssuedDate)}</div></div></div>
+        <table class="sigbox" style="width:auto"><tr><th></th><th>ISSUED BY</th><th>CHECKED BY</th><th>APPROVED BY</th></tr>
+          <tr><td>Signature</td><td style="width:80px">${trnEsc(p.IssuedByName)}</td><td style="width:80px">${trnEsc(p.CheckedByName)}</td><td style="width:80px">${trnEsc(p.ApprovedByName)}</td></tr>
+          <tr><td>Date</td><td>${p.IssuedDate2 ? trnDate(p.IssuedDate2) : ''}</td><td>${p.CheckedDate ? trnDate(p.CheckedDate) : ''}</td><td>${p.ApprovedDate ? trnDate(p.ApprovedDate) : ''}</td></tr>
+          <tr><td colspan="4" style="text-align:right"><b>FM-HR-04</b> Rev.01</td></tr></table>
+      </div>
+      <table>
+        <thead>
+          <tr><th rowspan="3">Item</th><th rowspan="3">Subject</th><th rowspan="3">Time<br>(s)</th><th rowspan="3">Period<br>(hrs)</th><th rowspan="3">Plan/<br>Actual</th><th colspan="48">Month</th>${groupOpts.map(g => `<th rowspan="3" class="gp">${trnEsc(tnGrpLabel(g))}</th>`).join('')}<th rowspan="3">Remark</th></tr>
+          <tr>${monthHead}</tr>
+          <tr>${weekHead}</tr>
+        </thead>
+        <tbody>${rows}</tbody>
+        <tfoot><tr class="foot"><td colspan="5" style="text-align:center">Monthly Check</td><td colspan="${48 + groupOpts.length + 1}"></td></tr></tfoot>
+      </table>
+      <div style="font-size:7px;margin-top:2px">Group: ${groupOpts.map(g => trnEsc(tnGrpLabel(g))).join(' · ')} (marked ■ = included) &nbsp;|&nbsp; ■ = planned week</div>
+    </div>`;
+  },
+
+  csv() {
+    const items = this.data.items || [];
+    if (!items.length) { this.toast('No items'); return; }
+    const header = ['Seq', 'Subject', 'Department', 'Type', 'Group', 'Times', 'Hours', 'Headcount', 'Budget', 'Schedule', 'SourceNeedID', 'Remark'];
+    const body = items.map(o => [o.Seq, o.Subject, this.deptName(o.DepartmentID), trnLabel(TRN_COURSE_TYPES, o.TrainingType), tnGroupsText(o.Groups), o.Times, o.PeriodHours, o.Headcount, tnMoney(o.Budget), tpWeeksText(o.PlanWeeks), o.SourceNeedID, o.Remark]);
+    trnCsv('training-plan-' + this._year + '.csv', header, body);
+  }
+};
+
+function loadTrainingPlan() { Training._courses = null; TrainingPlan._logo = undefined; TrainingPlan.load(); }

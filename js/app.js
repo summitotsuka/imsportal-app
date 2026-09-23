@@ -444,6 +444,12 @@ function navigateTo(page) {
 
       break;
 
+    case 'training-plan':
+
+      loadTrainingPlan();
+
+      break;
+
 
     default:
 
