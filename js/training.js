@@ -676,6 +676,7 @@ const TP_STATUS = {
 };
 const TP_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 function tpBadge(st) { const m = TP_STATUS[String(st || '').toUpperCase()] || [st || '—', 'dc-b-off']; return `<span class="dc-badge ${m[1]}">${m[0]}</span>`; }
+function tpRevText(p) { return p.Revision || (p.RevNo === '' || p.RevNo == null ? '' : 'Rev.' + ('0' + p.RevNo).slice(-2)); }
 function tpWeeks(pw) { return String(pw || '').split(',').map(s => s.trim()).filter(Boolean); }
 function tpWeeksText(pw) { return tpWeeks(pw).map(k => { const p = k.split('-'); return (TP_MONTHS[(+p[0]) - 1] || p[0]) + '·' + p[1]; }).join('  '); }
 
@@ -728,6 +729,7 @@ const TrainingPlan = {
     if (a.indexOf('checkReject') !== -1) actBtns.push(btn('tpCheckRej', 'Reject', 'dc-danger'));
     if (a.indexOf('approve') !== -1) actBtns.push(btn('tpApprove', 'Approve (QMS)', 'dc-primary'));
     if (a.indexOf('approveReject') !== -1) actBtns.push(btn('tpApproveRej', 'Reject', 'dc-danger'));
+    if (a.indexOf('reopen') !== -1) actBtns.push(btn('tpReopen', 'Reject / Revise', 'dc-danger'));
     if (a.indexOf('cancel') !== -1) actBtns.push(btn('tpCancel', 'Cancel plan', 'dc-danger'));
 
     const sig = (t, name, date) => `<div style="flex:1"><div class="dc-faint" style="font-size:11px">${t}</div><div style="font-weight:600">${trnEsc(name) || '—'}</div><div class="dc-faint" style="font-size:11px">${date ? trnDate(date) : ''}</div></div>`;
@@ -741,7 +743,7 @@ const TrainingPlan = {
       <div class="dc-card">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
           <div><h2 style="margin:0;font-size:17px">${trnEsc(p.Title)}</h2>
-            <p class="dc-muted" style="margin:4px 0 0">To: <b>${trnEsc(p.ToText)}</b>${p.CcText ? ' · CC: ' + trnEsc(p.CcText) : ''}${p.Revision ? ' · Rev ' + trnEsc(p.Revision) : ''}${p.IssuedDate ? ' · Issued ' + trnEsc(p.IssuedDate) : ''}</p></div>
+            <p class="dc-muted" style="margin:4px 0 0">To: <b>${trnEsc(p.ToText)}</b>${p.CcText ? ' · CC: ' + trnEsc(p.CcText) : ''}${tpRevText(p) ? ' · ' + trnEsc(tpRevText(p)) : ''}${p.IssuedDate ? ' · EFF ' + trnEsc(p.IssuedDate) : ''}</p></div>
           <div>${tpBadge(p.Status)}</div>
         </div>
         <div class="sig" style="display:flex;gap:16px;margin-top:14px;border-top:1px solid #eee;padding-top:12px">
@@ -766,7 +768,8 @@ const TrainingPlan = {
     wire('tpCheck', () => this.run('checkTrainingPlan', { planId: p.PlanID, decision: 'APPROVE' }, 'Checked'));
     wire('tpCheckRej', () => this.commentModal('Reject to HR', 'checkTrainingPlan', { planId: p.PlanID, decision: 'REJECT' }));
     wire('tpApprove', () => this.run('approveTrainingPlan', { planId: p.PlanID, decision: 'APPROVE' }, 'Approved'));
-    wire('tpApproveRej', () => this.commentModal('Reject to HR', 'approveTrainingPlan', { planId: p.PlanID, decision: 'REJECT' }));
+    wire('tpApproveRej', () => this.commentModal('Reject to HR Manager', 'approveTrainingPlan', { planId: p.PlanID, decision: 'REJECT' }));
+    wire('tpReopen', () => this.commentModal('Reopen for revision (Rev ' + tpRevText(p) + ' → next)', 'approveTrainingPlan', { planId: p.PlanID, decision: 'REJECT' }));
     wire('tpCancel', () => this.commentModal('Cancel this plan', 'cancelTrainingPlan', { planId: p.PlanID }));
     this.renderItems();
   },
@@ -845,13 +848,13 @@ const TrainingPlan = {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
         <div class="dc-field dc-span2"><label>Subject <span class="dc-req">*</span></label><input class="dc-in" id="tpiSubject" value="${g('Subject')}"></div>
         <div class="dc-field"><label>Type</label>${typeSel}</div>
-        <div class="dc-field"><label>Department</label>${depSel}</div>
-        <div class="dc-field dc-span2"><label>Group Of Participant</label><div style="padding:4px 0">${groupBoxes}</div></div>
-        <div class="dc-field"><label>Times</label><input type="number" min="0" class="dc-in" id="tpiTimes" value="${g('Times')}"></div>
-        <div class="dc-field"><label>Hours</label><input type="number" min="0" step="0.5" class="dc-in" id="tpiHours" value="${g('PeriodHours')}"></div>
-        <div class="dc-field"><label>Headcount</label><input type="number" min="0" class="dc-in" id="tpiHead" value="${g('Headcount')}"></div>
-        <div class="dc-field"><label>Budget</label><input type="number" min="0" step="0.01" class="dc-in" id="tpiBudget" value="${g('Budget')}"></div>
-        <div class="dc-field dc-span2"><label>Schedule (month × week)</label>${this.weeksGrid(ed ? existing.PlanWeeks : '')}</div>
+        <div class="dc-field"><label>Department <span class="dc-req">*</span></label>${depSel}</div>
+        <div class="dc-field dc-span2"><label>Group Of Participant <span class="dc-req">*</span></label><div style="padding:4px 0">${groupBoxes}</div></div>
+        <div class="dc-field"><label>Times <span class="dc-req">*</span></label><input type="number" min="1" class="dc-in" id="tpiTimes" value="${g('Times')}"></div>
+        <div class="dc-field"><label>Hours <span class="dc-req">*</span></label><input type="number" min="0" step="0.5" class="dc-in" id="tpiHours" value="${g('PeriodHours')}"></div>
+        <div class="dc-field"><label>Headcount <span class="dc-req">*</span></label><input type="number" min="1" class="dc-in" id="tpiHead" value="${g('Headcount')}"></div>
+        <div class="dc-field"><label>Budget <span class="dc-req">*</span></label><input type="number" min="0" step="0.01" class="dc-in" id="tpiBudget" value="${g('Budget')}"></div>
+        <div class="dc-field dc-span2"><label>Schedule (month × week) <span class="dc-req">*</span></label>${this.weeksGrid(ed ? existing.PlanWeeks : '')}</div>
         <div class="dc-field dc-span2"><label>Remark</label><input class="dc-in" id="tpiRemark" value="${g('Remark')}"></div>
       </div>
       <div id="tpiErr"></div><div class="dc-bar"><button class="dc-btn dc-ghost" id="tpiX" type="button">Cancel</button><button class="dc-btn dc-primary" id="tpiOk" type="button">${ed ? 'Save' : 'Add'}</button></div></div>`;
@@ -863,8 +866,19 @@ const TrainingPlan = {
       const groups = Array.prototype.slice.call(scrim.querySelectorAll('.tpGrp')).filter(x => x.checked).map(x => x.value).join('|');
       const weeks = Array.prototype.slice.call(scrim.querySelectorAll('.tpWk')).filter(x => x.checked).map(x => x.value).join(',');
       const subject = (v('tpiSubject') || '').trim();
-      if (!subject) { scrim.querySelector('#tpiErr').innerHTML = '<div class="dc-err">Subject is required</div>'; return; }
-      const payload = { token: this.token(), Subject: subject, TrainingType: v('tpiType'), DepartmentID: v('tpiDept'), Groups: groups, Times: v('tpiTimes'), PeriodHours: v('tpiHours'), Headcount: v('tpiHead'), Budget: (v('tpiBudget') || '').trim(), PlanWeeks: weeks, Remark: (v('tpiRemark') || '').trim() };
+      const budget = (v('tpiBudget') || '').trim();
+      const errBox = scrim.querySelector('#tpiErr');
+      const miss = [];
+      if (!subject) miss.push('Subject');
+      if (!v('tpiDept')) miss.push('Department');
+      if (!groups) miss.push('Group');
+      if (!(Number(v('tpiTimes')) > 0)) miss.push('Times');
+      if (!(Number(v('tpiHours')) > 0)) miss.push('Hours');
+      if (!(Number(v('tpiHead')) > 0)) miss.push('Headcount');
+      if (budget === '' || !(Number(budget) >= 0)) miss.push('Budget');
+      if (!weeks) miss.push('Schedule');
+      if (miss.length) { errBox.innerHTML = `<div class="dc-err">Please fill: ${miss.join(', ')}</div>`; return; }
+      const payload = { token: this.token(), Subject: subject, TrainingType: v('tpiType'), DepartmentID: v('tpiDept'), Groups: groups, Times: v('tpiTimes'), PeriodHours: v('tpiHours'), Headcount: v('tpiHead'), Budget: budget, PlanWeeks: weeks, Remark: (v('tpiRemark') || '').trim() };
       const ok = scrim.querySelector('#tpiOk'); ok.disabled = true; ok.textContent = '…';
       const req = ed ? API.post('updateTrainingPlanItem', Object.assign({ itemId: existing.ItemID }, payload)) : API.post('addTrainingPlanItem', Object.assign({ planId: p.PlanID }, payload));
       req.then(() => { close(); this.toast(ed ? 'Item saved' : 'Item added'); this.load(); })
@@ -940,52 +954,50 @@ const TrainingPlan = {
   },
 
   printHtml(p, items, logo) {
-    const groupOpts = this.data.participantGroups || [];
     const monthHead = TP_MONTHS.map(m => `<th colspan="4" class="mo">${m}</th>`).join('');
     const weekHead = TP_MONTHS.map(() => '<th class="wk">1</th><th class="wk">2</th><th class="wk">3</th><th class="wk">4</th>').join('');
-    const cell = (set, m, w) => `<td class="c${set[m + '-' + w] ? ' on' : ''}"></td>`;
+    // Planned weeks shown as a printable glyph (background colours are dropped by most print drivers).
+    const cell = (set, m, w) => `<td class="c${set[m + '-' + w] ? ' on' : ''}">${set[m + '-' + w] ? '■' : ''}</td>`;
     const rows = items.map((o, i) => {
       const set = {}; tpWeeks(o.PlanWeeks).forEach(k => set[k] = 1);
       let planCells = '', actualCells = '';
       for (let m = 1; m <= 12; m++) for (let w = 1; w <= 4; w++) { planCells += cell(set, m, w); actualCells += '<td class="c"></td>'; }
-      const gset = {}; tnGroupList(o.Groups).forEach(k => gset[String(k).toUpperCase()] = 1);
-      const grpCells = groupOpts.map(g => `<td rowspan="2" class="c${gset[String(g).toUpperCase()] ? ' on' : ''}"></td>`).join('');
       return `<tr><td rowspan="2" class="c">${o.Seq || i + 1}</td><td rowspan="2" class="sub">${trnEsc(o.Subject)}</td>
         <td rowspan="2" class="c">${trnEsc(o.Times)}</td><td rowspan="2" class="c">${trnEsc(o.PeriodHours)}</td>
-        <td class="pa">Plan</td>${planCells}${grpCells}<td rowspan="2" class="rmk">${trnEsc(o.Remark)}</td></tr>
+        <td class="pa">Plan</td>${planCells}<td rowspan="2" class="grp">${trnEsc(tnGroupsCheck(o.Groups))}</td><td rowspan="2" class="rmk">${trnEsc(o.Remark)}</td></tr>
         <tr><td class="pa">Actual</td>${actualCells}</tr>`;
     }).join('');
     const logoCell = logo ? `<img src="${logo}" alt="SOM" style="height:34px;width:auto">` : '<b>SOM</b>';
     return `<style>
-      .p4{font-size:8.5px}.p4 table{border-collapse:collapse;width:100%}.p4 td,.p4 th{border:1px solid #000;padding:1px 2px}
-      .p4 .top{border:none;padding:0}.p4 .hd{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px}
+      .p4{font-size:8.5px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      .p4 table{border-collapse:collapse;width:100%}.p4 td,.p4 th{border:1px solid #000;padding:1px 2px}
+      .p4 .hd{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px}
       .p4 .sigbox td,.p4 .sigbox th{font-size:8px;padding:2px 4px}
-      .p4 th.mo{font-size:8px}.p4 th.wk{width:9px;font-size:7px;padding:0}.p4 td.c{width:9px;text-align:center}
-      .p4 td.c.on{background:#1f5fbf}.p4 td.pa{font-size:7.5px;white-space:nowrap}.p4 .sub{min-width:150px}
-      .p4 th.gp{font-size:6.5px;writing-mode:vertical-rl;transform:rotate(180deg);width:12px}.p4 .grpwrap{padding:0}
-      .p4 .rmk{min-width:70px}.p4 .foot td{height:16px}
+      .p4 th.mo{font-size:8px}.p4 th.wk{width:10px;font-size:7px;padding:0}
+      .p4 td.c{width:10px;text-align:center}.p4 td.c.on{font-size:7px;line-height:1}
+      .p4 td.pa{font-size:7.5px;white-space:nowrap}.p4 .sub{min-width:150px}
+      .p4 .grp{min-width:74px;font-size:8px;white-space:normal}.p4 .rmk{min-width:70px}.p4 .foot td{height:16px}
     </style>
     <div class="p4">
       <div class="hd">
         <div style="display:flex;gap:10px;align-items:center">${logoCell}<div><div style="font-weight:700">SUMMIT OTSUKA MANUFACTURING CO.,LTD.</div>
           <div style="font-size:11px;font-weight:700">${trnEsc(p.Title)}</div>
-          <div style="margin-top:3px">To: ${trnEsc(p.ToText)} &nbsp; CC: ${trnEsc(p.CcText)}</div>
-          <div>Revision: ${trnEsc(p.Revision)} &nbsp; Issued date: ${trnEsc(p.IssuedDate)}</div></div></div>
+          <div style="margin-top:3px">To: ${trnEsc(p.ToText)} &nbsp; CC: ${trnEsc(p.CcText)}</div></div></div>
         <table class="sigbox" style="width:auto"><tr><th></th><th>ISSUED BY</th><th>CHECKED BY</th><th>APPROVED BY</th></tr>
           <tr><td>Signature</td><td style="width:80px">${trnEsc(p.IssuedByName)}</td><td style="width:80px">${trnEsc(p.CheckedByName)}</td><td style="width:80px">${trnEsc(p.ApprovedByName)}</td></tr>
           <tr><td>Date</td><td>${p.IssuedDate2 ? trnDate(p.IssuedDate2) : ''}</td><td>${p.CheckedDate ? trnDate(p.CheckedDate) : ''}</td><td>${p.ApprovedDate ? trnDate(p.ApprovedDate) : ''}</td></tr>
-          <tr><td colspan="4" style="text-align:right"><b>FM-HR-04</b> Rev.01</td></tr></table>
+          <tr><td colspan="4" style="text-align:right"><b>FM-HR-04</b> ${trnEsc(tpRevText(p))}${p.IssuedDate ? ' EFF.' + trnEsc(p.IssuedDate) : ''}</td></tr></table>
       </div>
       <table>
         <thead>
-          <tr><th rowspan="3">Item</th><th rowspan="3">Subject</th><th rowspan="3">Time<br>(s)</th><th rowspan="3">Period<br>(hrs)</th><th rowspan="3">Plan/<br>Actual</th><th colspan="48">Month</th>${groupOpts.map(g => `<th rowspan="3" class="gp">${trnEsc(tnGrpLabel(g))}</th>`).join('')}<th rowspan="3">Remark</th></tr>
+          <tr><th rowspan="3">Item</th><th rowspan="3">Subject</th><th rowspan="3">Time<br>(s)</th><th rowspan="3">Period<br>(hrs)</th><th rowspan="3">Plan/<br>Actual</th><th colspan="48">Month</th><th rowspan="3" class="grp">Group Of Participant</th><th rowspan="3">Remark</th></tr>
           <tr>${monthHead}</tr>
           <tr>${weekHead}</tr>
         </thead>
         <tbody>${rows}</tbody>
-        <tfoot><tr class="foot"><td colspan="5" style="text-align:center">Monthly Check</td><td colspan="${48 + groupOpts.length + 1}"></td></tr></tfoot>
+        <tfoot><tr class="foot"><td colspan="5" style="text-align:center">Monthly Check</td><td colspan="50"></td></tr></tfoot>
       </table>
-      <div style="font-size:7px;margin-top:2px">Group: ${groupOpts.map(g => trnEsc(tnGrpLabel(g))).join(' · ')} (marked ■ = included) &nbsp;|&nbsp; ■ = planned week</div>
+      <div style="font-size:7px;margin-top:2px">■ = planned week &nbsp;|&nbsp; Group Of Participant shows only the levels included (☑)</div>
     </div>`;
   },
 
