@@ -345,8 +345,11 @@ const TrainingNeeds = {
 
   render() {
     const d = this.data, counts = d.counts || {};
-    const yNow = new Date().getFullYear();
-    const years = []; for (let y = yNow + 1; y >= yNow - 3; y--) years.push(y);
+    // Years are automatic: current year ±, plus every year that already holds needs. Nothing to set up.
+    const yNow = new Date().getFullYear(), seenY = {}, years = [];
+    for (let y = yNow + 1; y >= yNow - 3; y--) { seenY[y] = 1; years.push(y); }
+    ((d.years) || []).forEach(y => { if (!seenY[y]) { seenY[y] = 1; years.push(Number(y)); } });
+    years.sort((a, b) => b - a);
     const yearSel = `<select class="dc-in" id="tnYear" style="width:auto">${years.map(y => `<option value="${y}" ${y === this._year ? 'selected' : ''}>Year ${y}</option>`).join('')}</select>`;
     const dl = d.deadline ? `<span class="dc-muted" style="font-size:12.5px">Deadline: <b>${trnEsc(d.deadline)}</b>${d.deadlineClosed ? ' <span style="color:#b91c1c">(Closed)</span>' : ''}</span>` : '<span class="dc-faint" style="font-size:12.5px;color:#9ca3af">No deadline set</span>';
     const dlBtn = d.canApprove ? `<button class="dc-btn dc-ghost" id="tnDeadline" type="button" style="padding:4px 12px;font-size:12px">⚙ Set Deadline</button>` : '';
@@ -422,6 +425,7 @@ const TrainingNeeds = {
         <td class="c" style="width:78px">${trnEsc(status(o.Status))}</td>
         <td style="width:160px">${trnEsc(remark)}</td></tr>`;
     }).join('');
+    const fh = (this.data && this.data.formHeader) || ['FM-HR-03', '31/03/08', 'A', '00'];
     const pad = Math.max(0, 12 - list.length);
     const padRows = new Array(pad).fill('<tr><td class="c" style="height:22px">&nbsp;</td><td></td><td></td><td></td><td></td><td></td></tr>').join('');
     // Logo aspect 1024×428 (≈2.39:1) — fix height, let width follow so it never distorts.
@@ -433,12 +437,12 @@ const TrainingNeeds = {
           <td rowspan="4" style="text-align:center"><div style="font-weight:700">บริษัท ซัมมิท โอซูกะ แมนูแฟคเจอริ่ง จำกัด</div>
             <div style="font-size:9px">SUMMIT OTSUKA MANUFACTURING CO., LTD.</div>
             <div style="margin-top:6px;font-weight:700">แบบสำรวจความต้องการฝึกอบรม</div></td>
-          <td class="k">เลขที่เอกสาร</td><td class="v"><b>FM-HR-03</b></td>
+          <td class="k">เลขที่เอกสาร</td><td class="v"><b>${trnEsc(fh[0])}</b></td>
           <td class="k">หน้า</td><td class="v"></td>
         </tr>
-        <tr><td class="k">วันที่ออกใช้</td><td class="v">31/03/08</td><td class="k">ผู้รายงาน</td><td class="v"></td></tr>
-        <tr><td class="k">ออกครั้งที่</td><td class="v">A</td><td class="k">ผู้ทบทวน</td><td class="v"></td></tr>
-        <tr><td class="k">แก้ไขครั้งที่</td><td class="v">00</td><td class="k">ผู้อนุมัติ</td><td class="v"></td></tr>
+        <tr><td class="k">วันที่ออกใช้</td><td class="v">${trnEsc(fh[1])}</td><td class="k">ผู้รายงาน</td><td class="v"></td></tr>
+        <tr><td class="k">ออกครั้งที่</td><td class="v">${trnEsc(fh[2])}</td><td class="k">ผู้ทบทวน</td><td class="v"></td></tr>
+        <tr><td class="k">แก้ไขครั้งที่</td><td class="v">${trnEsc(fh[3])}</td><td class="k">ผู้อนุมัติ</td><td class="v"></td></tr>
       </table>
       <div class="meta">ฝ่าย / แผนก : <b>${trnEsc(this.deptName(depId))}</b> &nbsp;&nbsp; ประจำปี : <b>${trnEsc(this._year)}</b></div>
       <table class="grid">
@@ -676,31 +680,48 @@ const TP_STATUS = {
 };
 const TP_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 function tpBadge(st) { const m = TP_STATUS[String(st || '').toUpperCase()] || [st || '—', 'dc-b-off']; return `<span class="dc-badge ${m[1]}">${m[0]}</span>`; }
-function tpRevText(p) { return p.Revision || (p.RevNo === '' || p.RevNo == null ? '' : 'Rev.' + ('0' + p.RevNo).slice(-2)); }
+function tpRev2(n) { return 'Rev.' + ('0' + (Number(n) || 0)).slice(-2); }
+function tpRevText(p) { return p.Revision || tpRev2(p.RevNo); }
 function tpWeeks(pw) { return String(pw || '').split(',').map(s => s.trim()).filter(Boolean); }
 function tpWeeksText(pw) { return tpWeeks(pw).map(k => { const p = k.split('-'); return (TP_MONTHS[(+p[0]) - 1] || p[0]) + '·' + p[1]; }).join('  '); }
 
 const TrainingPlan = {
-  _year: new Date().getFullYear(),
+  _year: new Date().getFullYear(), _rev: '',
   token() { return AUTH.getToken(); },
   css() { if (typeof DocumentsPage !== 'undefined' && DocumentsPage.injectCss) DocumentsPage.injectCss(); },
   toast(m) { return Training.toast(m); },
   deptName(id) { return Training.deptName(id); },
 
-  async load(year) {
+  async load(year, rev) {
     if (year) this._year = year;
+    this._rev = (rev === undefined || rev === null) ? '' : rev;
     this.css();
     await Training.ensureDepts(); await Training.loadCourseOptions();
     const c = document.getElementById('pageContent');
     c.innerHTML = `<div class="dc-wrap"><p class="dc-muted" style="padding:8px">Loading…</p></div>`;
-    try { this.data = await API.get('getTrainingPlan', { token: this.token(), year: this._year }); this.render(); }
-    catch (e) { c.innerHTML = `<div class="dc-wrap"><p style="color:#b91c1c;padding:8px">Failed to load: ${trnEsc(e.message || '')}</p></div>`; }
+    try {
+      const q = { token: this.token(), year: this._year };
+      if (this._rev !== '') q.rev = this._rev;
+      this.data = await API.get('getTrainingPlan', q);
+      this._rev = this.data.selectedRev === '' ? '' : this.data.selectedRev;
+      this.render();
+    } catch (e) { c.innerHTML = `<div class="dc-wrap"><p style="color:#b91c1c;padding:8px">Failed to load: ${trnEsc(e.message || '')}</p></div>`; }
   },
 
+  /** Years are automatic: the current year ±, plus every year that already has a plan. Nothing to set up. */
   yearBar() {
-    const yNow = new Date().getFullYear();
-    const years = []; for (let y = yNow + 1; y >= yNow - 3; y--) years.push(y);
+    const yNow = new Date().getFullYear(), seen = {}, years = [];
+    for (let y = yNow + 1; y >= yNow - 3; y--) { seen[y] = 1; years.push(y); }
+    ((this.data && this.data.years) || []).forEach(y => { if (!seen[y]) { seen[y] = 1; years.push(Number(y)); } });
+    years.sort((a, b) => b - a);
     return `<select class="dc-in" id="tpYear" style="width:auto">${years.map(y => `<option value="${y}" ${y === this._year ? 'selected' : ''}>Year ${y}</option>`).join('')}</select>`;
+  },
+
+  revBar() {
+    const revs = (this.data && this.data.revs) || [];
+    if (!revs.length) return '';
+    return `<select class="dc-in" id="tpRev" style="width:auto">${revs.slice().reverse().map(r =>
+      `<option value="${r.revNo}" ${Number(r.revNo) === Number(this.data.selectedRev) ? 'selected' : ''}>${this._year} ${tpRev2(r.revNo)} · ${(TP_STATUS[String(r.status).toUpperCase()] || [r.status])[0]}</option>`).join('')}</select>`;
   },
 
   render() {
@@ -712,7 +733,7 @@ const TrainingPlan = {
         <div style="display:flex;gap:12px;align-items:center;margin-bottom:14px">${this.yearBar()}</div>
         <div class="dc-card" style="text-align:center;padding:32px">
           <p class="dc-muted" style="margin:0 0 14px">No plan for year ${this._year}.</p>
-          ${d.canCreate ? `<button class="dc-btn dc-primary" id="tpCreate" type="button">+ Create Plan ${this._year}</button>` : '<p class="dc-faint" style="color:#9ca3af">You do not have permission to create a plan.</p>'}
+          ${d.canCreate ? `<button class="dc-btn dc-primary" id="tpCreate" type="button">+ Create Plan ${this._year} (Rev.00)</button>` : '<p class="dc-faint" style="color:#9ca3af">You do not have permission to create a plan.</p>'}
         </div></div><div class="dc-toast" id="dcToast"></div>`;
       document.getElementById('tpYear').addEventListener('change', e => this.load(parseInt(e.target.value, 10)));
       const cb = document.getElementById('tpCreate'); if (cb) cb.addEventListener('click', () => this.createPlan());
@@ -729,21 +750,25 @@ const TrainingPlan = {
     if (a.indexOf('checkReject') !== -1) actBtns.push(btn('tpCheckRej', 'Reject', 'dc-danger'));
     if (a.indexOf('approve') !== -1) actBtns.push(btn('tpApprove', 'Approve (QMS)', 'dc-primary'));
     if (a.indexOf('approveReject') !== -1) actBtns.push(btn('tpApproveRej', 'Reject', 'dc-danger'));
-    if (a.indexOf('reopen') !== -1) actBtns.push(btn('tpReopen', 'Reject / Revise', 'dc-danger'));
-    if (a.indexOf('cancel') !== -1) actBtns.push(btn('tpCancel', 'Cancel plan', 'dc-danger'));
+    if (a.indexOf('revise') !== -1) actBtns.push(btn('tpRevise', '+ Revise (open next Rev)', 'dc-primary'));
+    if (a.indexOf('cancel') !== -1) actBtns.push(btn('tpCancel', 'Cancel revision', 'dc-danger'));
 
     const sig = (t, name, date) => `<div style="flex:1"><div class="dc-faint" style="font-size:11px">${t}</div><div style="font-weight:600">${trnEsc(name) || '—'}</div><div class="dc-faint" style="font-size:11px">${date ? trnDate(date) : ''}</div></div>`;
+    const older = d.isLatest === false;
     c.innerHTML = `<div class="dc-wrap">
       <div class="dc-ph" style="margin-bottom:10px"><div><h1 style="margin:0">Annual Training Plan</h1>
         <p class="dc-muted" style="margin:4px 0 0">Training Yearly Plan (FM-HR-04)</p></div>
-        <span style="display:inline-flex;gap:8px;align-items:center">${this.yearBar()}
+        <span style="display:inline-flex;gap:8px;align-items:center">${this.yearBar()}${this.revBar()}
           <button class="dc-btn dc-ghost" id="tpCsv" type="button" style="padding:4px 12px;font-size:12px">⬇ CSV</button>
           <button class="dc-btn dc-ghost" id="tpPrint" type="button" style="padding:4px 12px;font-size:12px">🖨 Print A3</button></span></div>
+
+      ${older ? `<div class="dc-card" style="padding:8px 12px;background:#fffbe6;border-color:#f0d98c"><span class="dc-muted" style="font-size:12.5px">Viewing <b>${trnEsc(tpRev2(d.selectedRev))}</b> — an earlier revision, read-only.</span></div>` : ''}
 
       <div class="dc-card">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
           <div><h2 style="margin:0;font-size:17px">${trnEsc(p.Title)}</h2>
-            <p class="dc-muted" style="margin:4px 0 0">To: <b>${trnEsc(p.ToText)}</b>${p.CcText ? ' · CC: ' + trnEsc(p.CcText) : ''}${tpRevText(p) ? ' · ' + trnEsc(tpRevText(p)) : ''}${p.IssuedDate ? ' · EFF ' + trnEsc(p.IssuedDate) : ''}</p></div>
+            <p class="dc-muted" style="margin:4px 0 0">To: <b>${trnEsc(p.ToText)}</b>${p.CcText ? ' · CC: ' + trnEsc(p.CcText) : ''}</p>
+            <p class="dc-muted" style="margin:2px 0 0">${trnEsc(tpRevText(p))}${p.IssuedDate ? ' · Issued date ' + trnEsc(p.IssuedDate) : ''}</p></div>
           <div>${tpBadge(p.Status)}</div>
         </div>
         <div class="sig" style="display:flex;gap:16px;margin-top:14px;border-top:1px solid #eee;padding-top:12px">
@@ -755,9 +780,11 @@ const TrainingPlan = {
       </div>
 
       <div class="dc-card" id="tpItems"></div>
+      <div class="dc-card"><h2 style="margin:0 0 12px;font-size:15px">History</h2><ul class="dc-tl" id="tpHist"></ul></div>
     </div><div class="dc-toast" id="dcToast"></div>`;
 
     document.getElementById('tpYear').addEventListener('change', e => this.load(parseInt(e.target.value, 10)));
+    const rv = document.getElementById('tpRev'); if (rv) rv.addEventListener('change', e => this.load(this._year, parseInt(e.target.value, 10)));
     document.getElementById('tpPrint').addEventListener('click', () => this.print());
     document.getElementById('tpCsv').addEventListener('click', () => this.csv());
     const wire = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
@@ -769,18 +796,30 @@ const TrainingPlan = {
     wire('tpCheckRej', () => this.commentModal('Reject to HR', 'checkTrainingPlan', { planId: p.PlanID, decision: 'REJECT' }));
     wire('tpApprove', () => this.run('approveTrainingPlan', { planId: p.PlanID, decision: 'APPROVE' }, 'Approved'));
     wire('tpApproveRej', () => this.commentModal('Reject to HR Manager', 'approveTrainingPlan', { planId: p.PlanID, decision: 'REJECT' }));
-    wire('tpReopen', () => this.commentModal('Reopen for revision (Rev ' + tpRevText(p) + ' → next)', 'approveTrainingPlan', { planId: p.PlanID, decision: 'REJECT' }));
-    wire('tpCancel', () => this.commentModal('Cancel this plan', 'cancelTrainingPlan', { planId: p.PlanID }));
+    wire('tpRevise', () => this.reviseModal(p));
+    wire('tpCancel', () => this.commentModal('Cancel this revision', 'cancelTrainingPlan', { planId: p.PlanID }));
     this.renderItems();
+    this.renderHistory();
+  },
+
+  renderHistory() {
+    const box = document.getElementById('tpHist');
+    const h = (this.data && this.data.history) || [];
+    if (!h.length) { box.innerHTML = '<li><span class="dot"></span><div class="meta">No history</div></li>'; return; }
+    box.innerHTML = h.map(o => `<li><span class="dot"></span>
+      <div class="act">${trnEsc(o.Action)} <span class="dc-faint" style="font-weight:400">· ${trnEsc(tpRev2(o.RevNo))}</span></div>
+      <div class="meta">${trnEsc(o.ActorName)} · ${trnDate(o.Timestamp)}${o.Comment ? ' · ' + trnEsc(o.Comment) : ''}</div></li>`).join('');
   },
 
   renderItems() {
     const box = document.getElementById('tpItems');
-    const items = this.data.items || [], editable = (this.data.actions || []).indexOf('addItem') !== -1;
+    const d = this.data, items = d.items || [], curRev = Number(d.plan.RevNo) || 0;
+    const editable = (d.actions || []).indexOf('addItem') !== -1;
     if (!items.length) { box.innerHTML = `<p class="dc-faint" style="padding:6px;color:#9ca3af">No items yet${editable ? ' — use “Pull from Needs” or “Add item”.' : '.'}</p>`; return; }
-    box.innerHTML = `<table class="dc-tbl"><thead><tr><th style="width:34px">#</th><th>Subject</th><th>Dept</th><th>Group</th><th>Times</th><th>Hrs</th><th>Head</th><th>Budget</th><th>Schedule</th><th>Remark</th>${editable ? '<th></th>' : ''}</tr></thead><tbody>${items.map((o, i) => `
-      <tr>
-        <td class="dc-faint">${o.Seq || i + 1}</td>
+    box.innerHTML = `<table class="dc-tbl"><thead><tr><th style="width:34px">#</th><th>Subject</th><th>Dept</th><th>Group</th><th>Times</th><th>Hrs</th><th>Head</th><th>Budget</th><th>Schedule</th><th>Rev</th><th>Remark</th>${editable ? '<th></th>' : ''}</tr></thead><tbody>${items.map(o => {
+      const own = (Number(o.RevNo) || 0) === curRev;
+      return `<tr>
+        <td class="dc-faint">${o.No}</td>
         <td>${trnEsc(o.Subject)}${o.SourceNeedID ? ' <span class="dc-faint" style="font-size:10px">(from need)</span>' : ''}</td>
         <td>${trnEsc(this.deptName(o.DepartmentID))}</td>
         <td class="dc-faint" style="font-size:11.5px">${trnEsc(tnGroupsText(o.Groups))}</td>
@@ -788,28 +827,52 @@ const TrainingPlan = {
         <td class="dc-faint">${trnEsc(o.PeriodHours)}</td>
         <td class="dc-faint">${trnEsc(o.Headcount)}</td>
         <td class="dc-faint">${(o.Budget === '' || o.Budget == null) ? '<span style="color:#b91c1c">—</span>' : tnMoney(o.Budget)}</td>
-        <td class="dc-faint" style="font-size:11px">${trnEsc(tpWeeksText(o.PlanWeeks)) || '—'}</td>
+        <td class="dc-faint" style="font-size:11px">${trnEsc(tpWeeksText(o.PlanWeeks)) || '<span style="color:#b91c1c">—</span>'}</td>
+        <td class="dc-faint" style="font-size:11px">${trnEsc(tpRev2(o.RevNo))}</td>
         <td class="dc-faint" style="font-size:11px">${trnEsc(o.Remark)}</td>
-        ${editable ? `<td style="white-space:nowrap"><button class="dc-btn dc-ghost" data-ed="${trnEsc(o.ItemID)}" type="button" style="padding:2px 8px;font-size:11px">Edit</button> <button class="dc-btn dc-ghost" data-del="${trnEsc(o.ItemID)}" type="button" style="padding:2px 8px;font-size:11px;color:#b91c1c">✕</button></td>` : ''}
-      </tr>`).join('')}</tbody></table>`;
+        ${editable ? `<td style="white-space:nowrap">${own
+          ? `<button class="dc-btn dc-ghost" data-ed="${trnEsc(o.ItemID)}" type="button" style="padding:2px 8px;font-size:11px">Edit</button> <button class="dc-btn dc-ghost" data-del="${trnEsc(o.ItemID)}" type="button" style="padding:2px 8px;font-size:11px;color:#b91c1c">✕</button>`
+          : `<button class="dc-btn dc-ghost" data-rep="${trnEsc(o.ItemID)}" type="button" style="padding:2px 8px;font-size:11px" title="Replace with an editable copy in this revision">Replace</button> <button class="dc-btn dc-ghost" data-void="${trnEsc(o.ItemID)}" type="button" style="padding:2px 8px;font-size:11px;color:#b91c1c" title="Remove from this revision onward">Void</button>`}</td>` : ''}
+      </tr>`; }).join('')}</tbody></table>`;
     if (editable) {
       box.querySelectorAll('[data-ed]').forEach(b => b.addEventListener('click', () => this.itemForm(items.filter(x => String(x.ItemID) === b.dataset.ed)[0])));
       box.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => this.deleteItem(b.dataset.del)));
+      box.querySelectorAll('[data-void]').forEach(b => b.addEventListener('click', () => this.voidItem(b.dataset.void, false)));
+      box.querySelectorAll('[data-rep]').forEach(b => b.addEventListener('click', () => this.voidItem(b.dataset.rep, true)));
     }
   },
 
   async createPlan() {
-    try { await API.post('createTrainingPlan', { token: this.token(), Year: this._year }); this.toast('Plan created'); this.load(); }
+    try { await API.post('createTrainingPlan', { token: this.token(), Year: this._year }); this.toast('Plan created (Rev.00)'); this.load(this._year); }
     catch (e) { this.toast((e && e.message) || 'Failed'); }
+  },
+
+  reviseModal(p) {
+    const self = this;
+    const scrim = document.createElement('div'); scrim.className = 'dc-scrim';
+    scrim.innerHTML = `<div class="dc-modal"><h3 style="margin:0 0 4px">Open ${trnEsc(tpRev2((Number(p.RevNo) || 0) + 1))}</h3>
+      <p class="dc-muted" style="font-size:12px;margin:0 0 12px">${trnEsc(tpRev2(p.RevNo))} stays exactly as approved. The new revision starts as DRAFT for HR to add, replace or void items.</p>
+      <label style="font-size:12.5px;font-weight:600;display:block;margin-bottom:4px">Reason (optional)</label>
+      <textarea class="dc-in" id="tpRvCmt" rows="2"></textarea><div id="tpRvErr"></div>
+      <div class="dc-bar"><button class="dc-btn dc-ghost" id="tpRvX" type="button">Cancel</button><button class="dc-btn dc-primary" id="tpRvOk" type="button">Open revision</button></div></div>`;
+    document.body.appendChild(scrim);
+    const close = () => scrim.remove();
+    scrim.querySelector('#tpRvX').addEventListener('click', close);
+    scrim.querySelector('#tpRvOk').addEventListener('click', () => {
+      const ok = scrim.querySelector('#tpRvOk'); ok.disabled = true; ok.textContent = '…';
+      API.post('reviseTrainingPlan', { token: self.token(), planId: p.PlanID, comment: scrim.querySelector('#tpRvCmt').value.trim() })
+        .then(r => { close(); self.toast(tpRev2(r.rev) + ' opened'); self.load(self._year, r.rev); })
+        .catch(ex => { ok.disabled = false; ok.textContent = 'Open revision'; scrim.querySelector('#tpRvErr').innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'Failed')}</div>`; });
+    });
   },
 
   headerForm() {
     const p = this.data.plan;
     const scrim = document.createElement('div'); scrim.className = 'dc-scrim';
     const row = (id, label, val) => `<div class="dc-field" style="margin-bottom:8px"><label>${label}</label><input class="dc-in" id="${id}" value="${trnEsc(val || '')}"></div>`;
-    scrim.innerHTML = `<div class="dc-modal" style="max-width:480px"><h3 style="margin:0 0 12px">Edit plan header</h3>
+    scrim.innerHTML = `<div class="dc-modal" style="max-width:480px"><h3 style="margin:0 0 4px">Edit plan header</h3>
+      <p class="dc-muted" style="font-size:12px;margin:0 0 12px">Revision and Issued date are stamped automatically when QMS approves.</p>
       ${row('tpTitle', 'Title', p.Title)}${row('tpTo', 'To', p.ToText)}${row('tpCc', 'CC', p.CcText)}
-      <div style="display:flex;gap:10px">${row('tpRev', 'Revision', p.Revision)}${row('tpIss', 'Issued date', p.IssuedDate)}</div>
       <div id="tpHErr"></div><div class="dc-bar"><button class="dc-btn dc-ghost" id="tpHX" type="button">Cancel</button><button class="dc-btn dc-primary" id="tpHOk" type="button">Save</button></div></div>`;
     document.body.appendChild(scrim);
     const close = () => scrim.remove();
@@ -817,8 +880,8 @@ const TrainingPlan = {
     scrim.querySelector('#tpHOk').addEventListener('click', () => {
       const g = id => (scrim.querySelector('#' + id) || {}).value || '';
       const ok = scrim.querySelector('#tpHOk'); ok.disabled = true; ok.textContent = '…';
-      API.post('updateTrainingPlan', { token: this.token(), planId: p.PlanID, Title: g('tpTitle'), ToText: g('tpTo'), CcText: g('tpCc'), Revision: g('tpRev'), IssuedDate: g('tpIss') })
-        .then(() => { close(); this.toast('Saved'); this.load(); })
+      API.post('updateTrainingPlan', { token: this.token(), planId: p.PlanID, Title: g('tpTitle'), ToText: g('tpTo'), CcText: g('tpCc') })
+        .then(() => { close(); this.toast('Saved'); this.load(this._year, this._rev); })
         .catch(ex => { ok.disabled = false; ok.textContent = 'Save'; scrim.querySelector('#tpHErr').innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'Failed')}</div>`; });
     });
   },
@@ -841,11 +904,13 @@ const TrainingPlan = {
     const chosen = ed ? tnGroupList(String(existing.Groups || '').toUpperCase()) : [];
     const groupBoxes = groupOpts.map(gk => `<label style="display:inline-flex;align-items:center;gap:4px;margin-right:14px;font-weight:400"><input type="checkbox" class="tpGrp" value="${trnEsc(gk)}" ${chosen.indexOf(gk) !== -1 ? 'checked' : ''}> ${trnEsc(tnGrpLabel(gk))}</label>`).join('');
     const depIds = Object.keys(Training.deptMap);
+    const courseOpts = `<option value="">— type the subject below —</option>` + (Training._courses || []).map(cc => `<option value="${trnEsc(cc.CourseID)}" ${ed && String(existing.CourseID || '').trim() === String(cc.CourseID) ? 'selected' : ''}>${trnEsc(cc.CourseCode)} · ${trnEsc(cc.CourseName)}</option>`).join('');
     const typeSel = `<select class="dc-in" id="tpiType"><option value="">—</option>${TRN_COURSE_TYPES.map(o => `<option value="${o[0]}" ${ed && String(existing.TrainingType).toUpperCase() === o[0] ? 'selected' : ''}>${o[1]}</option>`).join('')}</select>`;
     const depSel = `<select class="dc-in" id="tpiDept"><option value="">—</option>${depIds.map(id => `<option value="${trnEsc(id)}" ${ed && String(existing.DepartmentID).trim() === id ? 'selected' : ''}>${trnEsc(Training.deptMap[id])}</option>`).join('')}</select>`;
     const scrim = document.createElement('div'); scrim.className = 'dc-scrim';
-    scrim.innerHTML = `<div class="dc-modal" style="max-width:640px;max-height:90vh;overflow:auto"><h3 style="margin:0 0 12px">${ed ? 'Edit item' : 'Add item'}</h3>
+    scrim.innerHTML = `<div class="dc-modal" style="max-width:640px;max-height:90vh;overflow:auto"><h3 style="margin:0 0 12px">${ed ? 'Edit item' : 'Add item'} <span class="dc-muted" style="font-size:13px">${trnEsc(tpRev2(p.RevNo))}</span></h3>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="dc-field dc-span2"><label>Course (from catalog)</label><select class="dc-in" id="tpiCourse">${courseOpts}</select></div>
         <div class="dc-field dc-span2"><label>Subject <span class="dc-req">*</span></label><input class="dc-in" id="tpiSubject" value="${g('Subject')}"></div>
         <div class="dc-field"><label>Type</label>${typeSel}</div>
         <div class="dc-field"><label>Department <span class="dc-req">*</span></label>${depSel}</div>
@@ -859,6 +924,17 @@ const TrainingPlan = {
       </div>
       <div id="tpiErr"></div><div class="dc-bar"><button class="dc-btn dc-ghost" id="tpiX" type="button">Cancel</button><button class="dc-btn dc-primary" id="tpiOk" type="button">${ed ? 'Save' : 'Add'}</button></div></div>`;
     document.body.appendChild(scrim);
+    // Picking a catalog course fills the subject + type and locks them; blank = type your own.
+    const courseEl = scrim.querySelector('#tpiCourse'), subjEl = scrim.querySelector('#tpiSubject'), typeEl = scrim.querySelector('#tpiType');
+    const syncCourse = () => {
+      const picked = courseEl.value;
+      if (picked) {
+        const cc = (Training._courses || []).find(x => String(x.CourseID) === String(picked));
+        if (cc) { subjEl.value = cc.CourseName || ''; if (cc.CourseType) typeEl.value = String(cc.CourseType).toUpperCase(); }
+        subjEl.readOnly = true; typeEl.disabled = true;
+      } else { subjEl.readOnly = false; typeEl.disabled = false; }
+    };
+    courseEl.addEventListener('change', syncCourse); syncCourse();
     const close = () => scrim.remove();
     scrim.querySelector('#tpiX').addEventListener('click', close);
     scrim.querySelector('#tpiOk').addEventListener('click', () => {
@@ -867,7 +943,6 @@ const TrainingPlan = {
       const weeks = Array.prototype.slice.call(scrim.querySelectorAll('.tpWk')).filter(x => x.checked).map(x => x.value).join(',');
       const subject = (v('tpiSubject') || '').trim();
       const budget = (v('tpiBudget') || '').trim();
-      const errBox = scrim.querySelector('#tpiErr');
       const miss = [];
       if (!subject) miss.push('Subject');
       if (!v('tpiDept')) miss.push('Department');
@@ -877,25 +952,35 @@ const TrainingPlan = {
       if (!(Number(v('tpiHead')) > 0)) miss.push('Headcount');
       if (budget === '' || !(Number(budget) >= 0)) miss.push('Budget');
       if (!weeks) miss.push('Schedule');
-      if (miss.length) { errBox.innerHTML = `<div class="dc-err">Please fill: ${miss.join(', ')}</div>`; return; }
-      const payload = { token: this.token(), Subject: subject, TrainingType: v('tpiType'), DepartmentID: v('tpiDept'), Groups: groups, Times: v('tpiTimes'), PeriodHours: v('tpiHours'), Headcount: v('tpiHead'), Budget: budget, PlanWeeks: weeks, Remark: (v('tpiRemark') || '').trim() };
+      if (miss.length) { scrim.querySelector('#tpiErr').innerHTML = `<div class="dc-err">Please fill: ${miss.join(', ')}</div>`; return; }
+      const payload = { token: this.token(), CourseID: v('tpiCourse') || '', Subject: subject, TrainingType: v('tpiType'), DepartmentID: v('tpiDept'), Groups: groups, Times: v('tpiTimes'), PeriodHours: v('tpiHours'), Headcount: v('tpiHead'), Budget: budget, PlanWeeks: weeks, Remark: (v('tpiRemark') || '').trim() };
       const ok = scrim.querySelector('#tpiOk'); ok.disabled = true; ok.textContent = '…';
       const req = ed ? API.post('updateTrainingPlanItem', Object.assign({ itemId: existing.ItemID }, payload)) : API.post('addTrainingPlanItem', Object.assign({ planId: p.PlanID }, payload));
-      req.then(() => { close(); this.toast(ed ? 'Item saved' : 'Item added'); this.load(); })
+      req.then(() => { close(); this.toast(ed ? 'Item saved' : 'Item added'); this.load(this._year, this._rev); })
         .catch(ex => { ok.disabled = false; ok.textContent = ed ? 'Save' : 'Add'; scrim.querySelector('#tpiErr').innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'Failed')}</div>`; });
     });
   },
 
   deleteItem(itemId) {
     if (!window.confirm('Delete this item?')) return;
-    API.post('deleteTrainingPlanItem', { token: this.token(), itemId: itemId }).then(() => { this.toast('Item deleted'); this.load(); }).catch(e => this.toast((e && e.message) || 'Failed'));
+    API.post('deleteTrainingPlanItem', { token: this.token(), itemId: itemId }).then(() => { this.toast('Item deleted'); this.load(this._year, this._rev); }).catch(e => this.toast((e && e.message) || 'Failed'));
+  },
+
+  voidItem(itemId, replace) {
+    const msg = replace
+      ? 'Replace this item in the current revision?\n\nThe earlier revision keeps the original; an editable copy is added here.'
+      : 'Void this item from this revision onward?\n\nEarlier revisions still show it.';
+    if (!window.confirm(msg)) return;
+    API.post('voidTrainingPlanItem', { token: this.token(), itemId: itemId, replace: replace ? 'true' : 'false' })
+      .then(() => { this.toast(replace ? 'Item replaced' : 'Item voided'); this.load(this._year, this._rev); })
+      .catch(e => this.toast((e && e.message) || 'Failed'));
   },
 
   async needsModal() {
     const p = this.data.plan;
     const scrim = document.createElement('div'); scrim.className = 'dc-scrim';
     scrim.innerHTML = `<div class="dc-modal" style="max-width:640px;max-height:90vh;overflow:auto"><h3 style="margin:0 0 4px">Pull from Training Needs — ${this._year}</h3>
-      <p class="dc-muted" style="font-size:12px;margin:0 0 10px">In-Plan needs not yet in this plan</p><div id="tpNList"><p class="dc-muted">Loading…</p></div>
+      <p class="dc-muted" style="font-size:12px;margin:0 0 10px">In-Plan needs not yet used in this year's plan</p><div id="tpNList"><p class="dc-muted">Loading…</p></div>
       <div id="tpNErr"></div><div class="dc-bar"><button class="dc-btn dc-ghost" id="tpNX" type="button">Cancel</button><button class="dc-btn dc-primary" id="tpNOk" type="button">Add selected</button></div></div>`;
     document.body.appendChild(scrim);
     const close = () => scrim.remove();
@@ -911,13 +996,13 @@ const TrainingPlan = {
       if (!ids.length) { scrim.querySelector('#tpNErr').innerHTML = '<div class="dc-err">Select at least one</div>'; return; }
       const ok = scrim.querySelector('#tpNOk'); ok.disabled = true; ok.textContent = '…';
       API.post('addTrainingPlanNeeds', { token: this.token(), planId: p.PlanID, needIds: ids })
-        .then(r => { close(); this.toast((r.added || 0) + ' added'); this.load(); })
+        .then(r => { close(); this.toast((r.added || 0) + ' added'); this.load(this._year, this._rev); })
         .catch(ex => { ok.disabled = false; ok.textContent = 'Add selected'; scrim.querySelector('#tpNErr').innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'Failed')}</div>`; });
     });
   },
 
   async run(action, payload, ok) {
-    try { await API.post(action, Object.assign({ token: this.token() }, payload)); this.toast(ok); this.load(); }
+    try { await API.post(action, Object.assign({ token: this.token() }, payload)); this.toast(ok); this.load(this._year, ''); }
     catch (ex) { const e = document.getElementById('tpActErr'); if (e) e.innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'Failed')}</div>`; else this.toast((ex && ex.message) || 'Failed'); }
   },
 
@@ -935,7 +1020,7 @@ const TrainingPlan = {
       if (!cmt) { scrim.querySelector('#tpCmtErr').innerHTML = '<div class="dc-err">Reason is required</div>'; return; }
       const ok = scrim.querySelector('#tpCmtOk'); ok.disabled = true; ok.textContent = '…';
       API.post(action, Object.assign({ token: this.token(), comment: cmt }, payload))
-        .then(() => { close(); this.toast('Done'); this.load(); })
+        .then(() => { close(); this.toast('Done'); this.load(this._year, ''); })
         .catch(ex => { ok.disabled = false; ok.textContent = 'Confirm'; scrim.querySelector('#tpCmtErr').innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'Failed')}</div>`; });
     });
   },
@@ -950,19 +1035,20 @@ const TrainingPlan = {
     const p = this.data.plan, items = this.data.items || [];
     if (!items.length) { this.toast('No items to print'); return; }
     const logo = await this.ensureLogo();
-    trnPrint('FM-HR-04 · ' + (p.Title || ''), 'size: A3 landscape; margin: 8mm;', this.printHtml(p, items, logo));
+    trnPrint('FM-HR-04 · ' + (p.Title || '') + ' ' + tpRev2(p.RevNo), 'size: A3 landscape; margin: 8mm;', this.printHtml(p, items, logo));
   },
 
   printHtml(p, items, logo) {
+    const formNo = (this.data && this.data.formNo) || 'FM-HR-04';   // the blank form's own doc identity (Settings)
     const monthHead = TP_MONTHS.map(m => `<th colspan="4" class="mo">${m}</th>`).join('');
     const weekHead = TP_MONTHS.map(() => '<th class="wk">1</th><th class="wk">2</th><th class="wk">3</th><th class="wk">4</th>').join('');
-    // Planned weeks shown as a printable glyph (background colours are dropped by most print drivers).
-    const cell = (set, m, w) => `<td class="c${set[m + '-' + w] ? ' on' : ''}">${set[m + '-' + w] ? '■' : ''}</td>`;
-    const rows = items.map((o, i) => {
+    // A planned week is drawn with a thick border (borders print even when background graphics are off).
+    const cell = (set, m, w) => set[m + '-' + w] ? '<td class="c"><span class="bar"></span></td>' : '<td class="c"></td>';
+    const rows = items.map(o => {
       const set = {}; tpWeeks(o.PlanWeeks).forEach(k => set[k] = 1);
       let planCells = '', actualCells = '';
       for (let m = 1; m <= 12; m++) for (let w = 1; w <= 4; w++) { planCells += cell(set, m, w); actualCells += '<td class="c"></td>'; }
-      return `<tr><td rowspan="2" class="c">${o.Seq || i + 1}</td><td rowspan="2" class="sub">${trnEsc(o.Subject)}</td>
+      return `<tr><td rowspan="2" class="c">${o.No}</td><td rowspan="2" class="sub">${trnEsc(o.Subject)}</td>
         <td rowspan="2" class="c">${trnEsc(o.Times)}</td><td rowspan="2" class="c">${trnEsc(o.PeriodHours)}</td>
         <td class="pa">Plan</td>${planCells}<td rowspan="2" class="grp">${trnEsc(tnGroupsCheck(o.Groups))}</td><td rowspan="2" class="rmk">${trnEsc(o.Remark)}</td></tr>
         <tr><td class="pa">Actual</td>${actualCells}</tr>`;
@@ -973,8 +1059,9 @@ const TrainingPlan = {
       .p4 table{border-collapse:collapse;width:100%}.p4 td,.p4 th{border:1px solid #000;padding:1px 2px}
       .p4 .hd{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px}
       .p4 .sigbox td,.p4 .sigbox th{font-size:8px;padding:2px 4px}
-      .p4 th.mo{font-size:8px}.p4 th.wk{width:10px;font-size:7px;padding:0}
-      .p4 td.c{width:10px;text-align:center}.p4 td.c.on{font-size:7px;line-height:1}
+      .p4 th.mo{font-size:8px}.p4 th.wk{width:11px;font-size:7px;padding:0}
+      .p4 td.c{width:11px;text-align:center;padding:1px 0}
+      .p4 .bar{display:block;width:100%;border-top:8px solid #000;font-size:0;line-height:0}
       .p4 td.pa{font-size:7.5px;white-space:nowrap}.p4 .sub{min-width:150px}
       .p4 .grp{min-width:74px;font-size:8px;white-space:normal}.p4 .rmk{min-width:70px}.p4 .foot td{height:16px}
     </style>
@@ -982,11 +1069,13 @@ const TrainingPlan = {
       <div class="hd">
         <div style="display:flex;gap:10px;align-items:center">${logoCell}<div><div style="font-weight:700">SUMMIT OTSUKA MANUFACTURING CO.,LTD.</div>
           <div style="font-size:11px;font-weight:700">${trnEsc(p.Title)}</div>
-          <div style="margin-top:3px">To: ${trnEsc(p.ToText)} &nbsp; CC: ${trnEsc(p.CcText)}</div></div></div>
+          <div style="margin-top:3px">To: ${trnEsc(p.ToText)}</div>
+          <div>CC: ${trnEsc(p.CcText)}</div>
+          <div>Revision: ${trnEsc(tpRevText(p))} &nbsp;&nbsp; Issued date: ${trnEsc(p.IssuedDate)}</div></div></div>
         <table class="sigbox" style="width:auto"><tr><th></th><th>ISSUED BY</th><th>CHECKED BY</th><th>APPROVED BY</th></tr>
           <tr><td>Signature</td><td style="width:80px">${trnEsc(p.IssuedByName)}</td><td style="width:80px">${trnEsc(p.CheckedByName)}</td><td style="width:80px">${trnEsc(p.ApprovedByName)}</td></tr>
           <tr><td>Date</td><td>${p.IssuedDate2 ? trnDate(p.IssuedDate2) : ''}</td><td>${p.CheckedDate ? trnDate(p.CheckedDate) : ''}</td><td>${p.ApprovedDate ? trnDate(p.ApprovedDate) : ''}</td></tr>
-          <tr><td colspan="4" style="text-align:right"><b>FM-HR-04</b> ${trnEsc(tpRevText(p))}${p.IssuedDate ? ' EFF.' + trnEsc(p.IssuedDate) : ''}</td></tr></table>
+          <tr><td colspan="4" style="text-align:right"><b>${trnEsc(formNo)}</b></td></tr></table>
       </div>
       <table>
         <thead>
@@ -997,16 +1086,15 @@ const TrainingPlan = {
         <tbody>${rows}</tbody>
         <tfoot><tr class="foot"><td colspan="5" style="text-align:center">Monthly Check</td><td colspan="50"></td></tr></tfoot>
       </table>
-      <div style="font-size:7px;margin-top:2px">■ = planned week &nbsp;|&nbsp; Group Of Participant shows only the levels included (☑)</div>
     </div>`;
   },
 
   csv() {
     const items = this.data.items || [];
     if (!items.length) { this.toast('No items'); return; }
-    const header = ['Seq', 'Subject', 'Department', 'Type', 'Group', 'Times', 'Hours', 'Headcount', 'Budget', 'Schedule', 'SourceNeedID', 'Remark'];
-    const body = items.map(o => [o.Seq, o.Subject, this.deptName(o.DepartmentID), trnLabel(TRN_COURSE_TYPES, o.TrainingType), tnGroupsText(o.Groups), o.Times, o.PeriodHours, o.Headcount, tnMoney(o.Budget), tpWeeksText(o.PlanWeeks), o.SourceNeedID, o.Remark]);
-    trnCsv('training-plan-' + this._year + '.csv', header, body);
+    const header = ['No', 'Rev', 'Subject', 'Department', 'Type', 'Group', 'Times', 'Hours', 'Headcount', 'Budget', 'Schedule', 'SourceNeedID', 'Remark'];
+    const body = items.map(o => [o.No, tpRev2(o.RevNo), o.Subject, this.deptName(o.DepartmentID), trnLabel(TRN_COURSE_TYPES, o.TrainingType), tnGroupsText(o.Groups), o.Times, o.PeriodHours, o.Headcount, tnMoney(o.Budget), tpWeeksText(o.PlanWeeks), o.SourceNeedID, o.Remark]);
+    trnCsv('training-plan-' + this._year + '-' + tpRev2(this.data.selectedRev) + '.csv', header, body);
   }
 };
 
