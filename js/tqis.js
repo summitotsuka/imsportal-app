@@ -196,7 +196,7 @@ const TQIS = {
       btn.disabled = true;
       try {
         for (let i = 0; i < files.length; i++) {
-          btn.textContent = `กำลังอัปโหลด ${i + 1}/${files.length}…`;
+          btn.textContent = `Uploading ${i + 1}/${files.length}…`;
           const base64 = await tqResize(files[i], TQIS_IMG_EDGE, TQIS_IMG_Q);
           const r = await API.post('uploadTqisImage', { token: self.token(), tqisId: self._imgId, kind, base64 });
           if (r && r.images) self._existing[kind] = r.images;
@@ -227,11 +227,12 @@ const TQIS = {
     }));
     box.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
       if (!confirm('ลบรูปนี้? ไฟล์จะถูกลบออกจาก Drive ด้วย')) return;
-      b.disabled = true; this.imgErr(kind, '');
+      const prevTxt = b.textContent;
+      b.disabled = true; b.textContent = '…'; this.imgErr(kind, '');
       try {
         const r = await API.post('deleteTqisImage', { token: this.token(), tqisId: this._imgId, kind, fileId: b.dataset.del });
         this._existing[kind] = (r && r.images) || [];
-      } catch (ex) { this.imgErr(kind, (ex && ex.message) || 'ลบรูปไม่สำเร็จ'); }
+      } catch (ex) { b.disabled = false; b.textContent = prevTxt; this.imgErr(kind, (ex && ex.message) || 'ลบรูปไม่สำเร็จ'); }
       this.renderStrip(kind);
     }));
   },
@@ -703,7 +704,7 @@ const TQISReport = {
     const type = v('rpType');
     if (!type) { err.innerHTML = '<div class="dc-err">กรุณาเลือกประเภทรายงาน</div>'; return; }
     err.innerHTML = '';
-    const btn = document.getElementById('rpRun'); btn.disabled = true; btn.textContent = 'กำลังประมวลผล…';
+    const btn = document.getElementById('rpRun'); btn.disabled = true; btn.textContent = 'Processing…';
     const params = {
       token: AUTH.getToken(), type,
       from: v('rpFrom'), to: v('rpTo'), departmentId: v('rpDept'),

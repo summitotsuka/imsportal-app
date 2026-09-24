@@ -477,7 +477,7 @@ const TrainingNeeds = {
     scrim.querySelector('#tnDlX').addEventListener('click', close);
     scrim.querySelector('#tnDlOk').addEventListener('click', () => {
       const val = scrim.querySelector('#tnDl').value;
-      const ok = scrim.querySelector('#tnDlOk'); ok.disabled = true; ok.textContent = '…';
+      const ok = scrim.querySelector('#tnDlOk'); ok.disabled = true; ok.textContent = 'Processing…';
       API.post('setTrainingNeedDeadline', { token: self.token(), year: year, deadline: val })
         .then(() => { close(); self.toast('Deadline saved'); self.load(); })
         .catch(ex => { ok.disabled = false; ok.textContent = 'Save'; scrim.querySelector('#tnDlErr').innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'Failed')}</div>`; });
@@ -787,14 +787,14 @@ const TrainingPlan = {
     const rv = document.getElementById('tpRev'); if (rv) rv.addEventListener('change', e => this.load(this._year, parseInt(e.target.value, 10)));
     document.getElementById('tpPrint').addEventListener('click', () => this.print());
     document.getElementById('tpCsv').addEventListener('click', () => this.csv());
-    const wire = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
+    const wire = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', () => fn(el)); };
     wire('tpEdit', () => this.headerForm());
     wire('tpAddNeeds', () => this.needsModal());
     wire('tpAddItem', () => this.itemForm());
-    wire('tpSubmit', () => this.run('submitTrainingPlan', { planId: p.PlanID }, 'Submitted'));
-    wire('tpCheck', () => this.run('checkTrainingPlan', { planId: p.PlanID, decision: 'APPROVE' }, 'Checked'));
+    wire('tpSubmit', el => this.run('submitTrainingPlan', { planId: p.PlanID }, 'Submitted', el));
+    wire('tpCheck', el => this.run('checkTrainingPlan', { planId: p.PlanID, decision: 'APPROVE' }, 'Checked', el));
     wire('tpCheckRej', () => this.commentModal('Reject to HR', 'checkTrainingPlan', { planId: p.PlanID, decision: 'REJECT' }));
-    wire('tpApprove', () => this.run('approveTrainingPlan', { planId: p.PlanID, decision: 'APPROVE' }, 'Approved'));
+    wire('tpApprove', el => this.run('approveTrainingPlan', { planId: p.PlanID, decision: 'APPROVE' }, 'Approved', el));
     wire('tpApproveRej', () => this.commentModal('Reject to HR Manager', 'approveTrainingPlan', { planId: p.PlanID, decision: 'REJECT' }));
     wire('tpRevise', () => this.reviseModal(p));
     wire('tpCancel', () => this.commentModal('Cancel this revision', 'cancelTrainingPlan', { planId: p.PlanID }));
@@ -836,9 +836,9 @@ const TrainingPlan = {
       </tr>`; }).join('')}</tbody></table>`;
     if (editable) {
       box.querySelectorAll('[data-ed]').forEach(b => b.addEventListener('click', () => this.itemForm(items.filter(x => String(x.ItemID) === b.dataset.ed)[0])));
-      box.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => this.deleteItem(b.dataset.del)));
-      box.querySelectorAll('[data-void]').forEach(b => b.addEventListener('click', () => this.voidItem(b.dataset.void, false)));
-      box.querySelectorAll('[data-rep]').forEach(b => b.addEventListener('click', () => this.voidItem(b.dataset.rep, true)));
+      box.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => this.deleteItem(b.dataset.del, b)));
+      box.querySelectorAll('[data-void]').forEach(b => b.addEventListener('click', () => this.voidItem(b.dataset.void, false, b)));
+      box.querySelectorAll('[data-rep]').forEach(b => b.addEventListener('click', () => this.voidItem(b.dataset.rep, true, b)));
     }
   },
 
@@ -859,7 +859,7 @@ const TrainingPlan = {
     const close = () => scrim.remove();
     scrim.querySelector('#tpRvX').addEventListener('click', close);
     scrim.querySelector('#tpRvOk').addEventListener('click', () => {
-      const ok = scrim.querySelector('#tpRvOk'); ok.disabled = true; ok.textContent = '…';
+      const ok = scrim.querySelector('#tpRvOk'); ok.disabled = true; ok.textContent = 'Processing…';
       API.post('reviseTrainingPlan', { token: self.token(), planId: p.PlanID, comment: scrim.querySelector('#tpRvCmt').value.trim() })
         .then(r => { close(); self.toast(tpRev2(r.rev) + ' opened'); self.load(self._year, r.rev); })
         .catch(ex => { ok.disabled = false; ok.textContent = 'Open revision'; scrim.querySelector('#tpRvErr').innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'Failed')}</div>`; });
@@ -879,7 +879,7 @@ const TrainingPlan = {
     scrim.querySelector('#tpHX').addEventListener('click', close);
     scrim.querySelector('#tpHOk').addEventListener('click', () => {
       const g = id => (scrim.querySelector('#' + id) || {}).value || '';
-      const ok = scrim.querySelector('#tpHOk'); ok.disabled = true; ok.textContent = '…';
+      const ok = scrim.querySelector('#tpHOk'); ok.disabled = true; ok.textContent = 'Processing…';
       API.post('updateTrainingPlan', { token: this.token(), planId: p.PlanID, Title: g('tpTitle'), ToText: g('tpTo'), CcText: g('tpCc') })
         .then(() => { close(); this.toast('Saved'); this.load(this._year, this._rev); })
         .catch(ex => { ok.disabled = false; ok.textContent = 'Save'; scrim.querySelector('#tpHErr').innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'Failed')}</div>`; });
@@ -954,26 +954,30 @@ const TrainingPlan = {
       if (!weeks) miss.push('Schedule');
       if (miss.length) { scrim.querySelector('#tpiErr').innerHTML = `<div class="dc-err">Please fill: ${miss.join(', ')}</div>`; return; }
       const payload = { token: this.token(), CourseID: v('tpiCourse') || '', Subject: subject, TrainingType: v('tpiType'), DepartmentID: v('tpiDept'), Groups: groups, Times: v('tpiTimes'), PeriodHours: v('tpiHours'), Headcount: v('tpiHead'), Budget: budget, PlanWeeks: weeks, Remark: (v('tpiRemark') || '').trim() };
-      const ok = scrim.querySelector('#tpiOk'); ok.disabled = true; ok.textContent = '…';
+      const ok = scrim.querySelector('#tpiOk'); ok.disabled = true; ok.textContent = 'Processing…';
       const req = ed ? API.post('updateTrainingPlanItem', Object.assign({ itemId: existing.ItemID }, payload)) : API.post('addTrainingPlanItem', Object.assign({ planId: p.PlanID }, payload));
       req.then(() => { close(); this.toast(ed ? 'Item saved' : 'Item added'); this.load(this._year, this._rev); })
         .catch(ex => { ok.disabled = false; ok.textContent = ed ? 'Save' : 'Add'; scrim.querySelector('#tpiErr').innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'Failed')}</div>`; });
     });
   },
 
-  deleteItem(itemId) {
+  deleteItem(itemId, bt) {
     if (!window.confirm('Delete this item?')) return;
-    API.post('deleteTrainingPlanItem', { token: this.token(), itemId: itemId }).then(() => { this.toast('Item deleted'); this.load(this._year, this._rev); }).catch(e => this.toast((e && e.message) || 'Failed'));
+    if (bt) { bt.disabled = true; bt.textContent = '…'; }
+    API.post('deleteTrainingPlanItem', { token: this.token(), itemId: itemId })
+      .then(() => { this.toast('Item deleted'); this.load(this._year, this._rev); })
+      .catch(e => { if (bt) { bt.disabled = false; bt.textContent = '✕'; } this.toast((e && e.message) || 'Failed'); });
   },
 
-  voidItem(itemId, replace) {
+  voidItem(itemId, replace, bt) {
     const msg = replace
       ? 'Replace this item in the current revision?\n\nThe earlier revision keeps the original; an editable copy is added here.'
       : 'Void this item from this revision onward?\n\nEarlier revisions still show it.';
     if (!window.confirm(msg)) return;
+    let prev = ''; if (bt) { prev = bt.textContent; bt.disabled = true; bt.textContent = 'Processing…'; }
     API.post('voidTrainingPlanItem', { token: this.token(), itemId: itemId, replace: replace ? 'true' : 'false' })
       .then(() => { this.toast(replace ? 'Item replaced' : 'Item voided'); this.load(this._year, this._rev); })
-      .catch(e => this.toast((e && e.message) || 'Failed'));
+      .catch(e => { if (bt) { bt.disabled = false; bt.textContent = prev; } this.toast((e && e.message) || 'Failed'); });
   },
 
   async needsModal() {
@@ -994,16 +998,22 @@ const TrainingPlan = {
     scrim.querySelector('#tpNOk').addEventListener('click', () => {
       const ids = Array.prototype.slice.call(scrim.querySelectorAll('.tpNChk')).filter(x => x.checked).map(x => x.value);
       if (!ids.length) { scrim.querySelector('#tpNErr').innerHTML = '<div class="dc-err">Select at least one</div>'; return; }
-      const ok = scrim.querySelector('#tpNOk'); ok.disabled = true; ok.textContent = '…';
+      const ok = scrim.querySelector('#tpNOk'); ok.disabled = true; ok.textContent = 'Processing…';
       API.post('addTrainingPlanNeeds', { token: this.token(), planId: p.PlanID, needIds: ids })
         .then(r => { close(); this.toast((r.added || 0) + ' added'); this.load(this._year, this._rev); })
         .catch(ex => { ok.disabled = false; ok.textContent = 'Add selected'; scrim.querySelector('#tpNErr').innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'Failed')}</div>`; });
     });
   },
 
-  async run(action, payload, ok) {
+  async run(action, payload, ok, bt) {
+    let prev = '';
+    if (bt) { prev = bt.textContent; bt.disabled = true; bt.textContent = 'Processing…'; }
     try { await API.post(action, Object.assign({ token: this.token() }, payload)); this.toast(ok); this.load(this._year, ''); }
-    catch (ex) { const e = document.getElementById('tpActErr'); if (e) e.innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'Failed')}</div>`; else this.toast((ex && ex.message) || 'Failed'); }
+    catch (ex) {
+      if (bt) { bt.disabled = false; bt.textContent = prev; }
+      const e = document.getElementById('tpActErr');
+      if (e) e.innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'Failed')}</div>`; else this.toast((ex && ex.message) || 'Failed');
+    }
   },
 
   commentModal(title, action, payload) {
@@ -1018,7 +1028,7 @@ const TrainingPlan = {
     scrim.querySelector('#tpCmtOk').addEventListener('click', () => {
       const cmt = scrim.querySelector('#tpCmt').value.trim();
       if (!cmt) { scrim.querySelector('#tpCmtErr').innerHTML = '<div class="dc-err">Reason is required</div>'; return; }
-      const ok = scrim.querySelector('#tpCmtOk'); ok.disabled = true; ok.textContent = '…';
+      const ok = scrim.querySelector('#tpCmtOk'); ok.disabled = true; ok.textContent = 'Processing…';
       API.post(action, Object.assign({ token: this.token(), comment: cmt }, payload))
         .then(() => { close(); this.toast('Done'); this.load(this._year, ''); })
         .catch(ex => { ok.disabled = false; ok.textContent = 'Confirm'; scrim.querySelector('#tpCmtErr').innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'Failed')}</div>`; });
