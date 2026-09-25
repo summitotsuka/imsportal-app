@@ -450,6 +450,12 @@ function navigateTo(page) {
 
       break;
 
+    case 'training-ojt':
+
+      loadOjtPlan();
+
+      break;
+
 
     default:
 

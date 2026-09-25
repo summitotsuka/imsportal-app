@@ -705,7 +705,10 @@ function tpWeeks(pw) { return String(pw || '').split(',').map(s => s.trim()).fil
 function tpWeeksText(pw) { return tpWeeks(pw).map(k => { const p = k.split('-'); return (TP_MONTHS[(+p[0]) - 1] || p[0]) + '·' + p[1]; }).join('  '); }
 
 const TrainingPlan = {
-  _year: new Date().getFullYear(), _rev: '',
+  _year: new Date().getFullYear(), _rev: '', _type: 'ANNUAL', _dept: '',
+  isOjt() { return this._type === 'OJT'; },
+  pageTitle() { return this.isOjt() ? 'On-the-Job Training Plan' : 'Annual Training Plan'; },
+  pageSub() { return this.isOjt() ? 'OJT Plan per department (FM-HR-04)' : 'Training Yearly Plan (FM-HR-04)'; },
   token() { return AUTH.getToken(); },
   css() { if (typeof DocumentsPage !== 'undefined' && DocumentsPage.injectCss) DocumentsPage.injectCss(); },
   toast(m) { return Training.toast(m); },
@@ -718,13 +721,15 @@ const TrainingPlan = {
     const c = document.getElementById('pageContent');
     c.innerHTML = `<div class="dc-wrap"><p class="dc-muted" style="padding:8px">Loading…</p></div>`;
     try {
-      const q = { token: this.token(), year: this._year };
+      const q = { token: this.token(), year: this._year, type: this._type };
       if (this._rev !== '') q.rev = this._rev;
+      if (this.isOjt() && this._dept) q.dept = this._dept;
       // fire the page request first, then load the lookups alongside it instead of one after another
       const req = API.get('getTrainingPlan', q);
       await Promise.all([Training.ensureDepts(), Training.loadCourseOptions()]);
       this.data = await req;
       this._rev = this.data.selectedRev === '' ? '' : this.data.selectedRev;
+      this._dept = this.data.dept || this._dept;
       this.render();
     } catch (e) { c.innerHTML = `<div class="dc-wrap"><p style="color:#b91c1c;padding:8px">Failed to load: ${trnEsc(e.message || '')}</p></div>`; }
   },
@@ -738,6 +743,14 @@ const TrainingPlan = {
     return `<select class="dc-in" id="tpYear" style="width:auto">${years.map(y => `<option value="${y}" ${y === this._year ? 'selected' : ''}>Year ${y}</option>`).join('')}</select>`;
   },
 
+  deptBar() {
+    if (!this.isOjt()) return '';
+    const d = this.data || {};
+    const ids = d.deptScope === 'ALL' ? Object.keys(Training.deptMap) : (d.deptList || []);
+    if (!ids.length) return '<span class="dc-faint" style="color:#9ca3af;font-size:12.5px">No department available</span>';
+    return `<select class="dc-in" id="tpDept" style="width:auto">${ids.map(id => `<option value="${trnEsc(id)}" ${String(d.dept) === id ? 'selected' : ''}>${trnEsc(Training.deptMap[id] || id)}</option>`).join('')}</select>`;
+  },
+
   revBar() {
     const revs = (this.data && this.data.revs) || [];
     if (!revs.length) return '';
@@ -749,14 +762,15 @@ const TrainingPlan = {
     const d = this.data, p = d.plan, c = document.getElementById('pageContent');
     if (!p) {
       c.innerHTML = `<div class="dc-wrap">
-        <div class="dc-ph" style="margin-bottom:10px"><div><h1 style="margin:0">Annual Training Plan</h1>
-          <p class="dc-muted" style="margin:4px 0 0">Training Yearly Plan (FM-HR-04)</p></div></div>
-        <div style="display:flex;gap:12px;align-items:center;margin-bottom:14px">${this.yearBar()}</div>
+        <div class="dc-ph" style="margin-bottom:10px"><div><h1 style="margin:0">${this.pageTitle()}</h1>
+          <p class="dc-muted" style="margin:4px 0 0">${this.pageSub()}</p></div></div>
+        <div style="display:flex;gap:12px;align-items:center;margin-bottom:14px">${this.yearBar()}${this.deptBar()}</div>
         <div class="dc-card" style="text-align:center;padding:32px">
           <p class="dc-muted" style="margin:0 0 14px">No plan for year ${this._year}.</p>
           ${d.canCreate ? `<button class="dc-btn dc-primary" id="tpCreate" type="button">+ Create Plan ${this._year} (Rev.00)</button>` : '<p class="dc-faint" style="color:#9ca3af">You do not have permission to create a plan.</p>'}
         </div></div><div class="dc-toast" id="dcToast"></div>`;
       document.getElementById('tpYear').addEventListener('change', e => this.load(parseInt(e.target.value, 10)));
+      this.wireDept();
       const cb = document.getElementById('tpCreate'); if (cb) cb.addEventListener('click', () => this.createPlan());
       return;
     }
@@ -777,9 +791,9 @@ const TrainingPlan = {
     const sig = (t, name, date) => `<div style="flex:1"><div class="dc-faint" style="font-size:11px">${t}</div><div style="font-weight:600">${trnEsc(name) || '—'}</div><div class="dc-faint" style="font-size:11px">${date ? trnDate(date) : ''}</div></div>`;
     const older = d.isLatest === false;
     c.innerHTML = `<div class="dc-wrap">
-      <div class="dc-ph" style="margin-bottom:10px"><div><h1 style="margin:0">Annual Training Plan</h1>
-        <p class="dc-muted" style="margin:4px 0 0">Training Yearly Plan (FM-HR-04)</p></div>
-        <span style="display:inline-flex;gap:8px;align-items:center">${this.yearBar()}${this.revBar()}
+      <div class="dc-ph" style="margin-bottom:10px"><div><h1 style="margin:0">${this.pageTitle()}</h1>
+        <p class="dc-muted" style="margin:4px 0 0">${this.pageSub()}</p></div>
+        <span style="display:inline-flex;gap:8px;align-items:center">${this.yearBar()}${this.deptBar()}${this.revBar()}
           <button class="dc-btn dc-ghost" id="tpCsv" type="button" style="padding:4px 12px;font-size:12px">⬇ CSV</button>
           <button class="dc-btn dc-ghost" id="tpPrint" type="button" style="padding:4px 12px;font-size:12px">🖨 Print A3</button></span></div>
 
@@ -805,6 +819,7 @@ const TrainingPlan = {
     </div><div class="dc-toast" id="dcToast"></div>`;
 
     document.getElementById('tpYear').addEventListener('change', e => this.load(parseInt(e.target.value, 10)));
+    this.wireDept();
     const rv = document.getElementById('tpRev'); if (rv) rv.addEventListener('change', e => this.load(this._year, parseInt(e.target.value, 10)));
     document.getElementById('tpPrint').addEventListener('click', () => this.print());
     document.getElementById('tpCsv').addEventListener('click', () => this.csv());
@@ -821,6 +836,11 @@ const TrainingPlan = {
     wire('tpCancel', () => this.commentModal('Cancel this revision', 'cancelTrainingPlan', { planId: p.PlanID }));
     this.renderItems();
     this.renderHistory();
+  },
+
+  wireDept() {
+    const el = document.getElementById('tpDept');
+    if (el) el.addEventListener('change', e => { this._dept = e.target.value; this.load(this._year, ''); });
   },
 
   renderHistory() {
@@ -869,7 +889,9 @@ const TrainingPlan = {
   },
 
   async createPlan() {
-    try { await API.post('createTrainingPlan', { token: this.token(), Year: this._year }); this.toast('Plan created (Rev.00)'); this.load(this._year); }
+    const payload = { token: this.token(), Year: this._year };
+    if (this.isOjt()) { payload.PlanType = 'OJT'; payload.DepartmentID = this._dept; }
+    try { await API.post('createTrainingPlan', payload); this.toast('Plan created (Rev.00)'); this.load(this._year, ''); }
     catch (e) { this.toast((e && e.message) || 'Failed'); }
   },
 
@@ -924,15 +946,19 @@ const TrainingPlan = {
   },
 
   itemForm(existing) {
-    const ed = !!existing, p = this.data.plan;
+    const ed = !!existing, p = this.data.plan, ojt = this.isOjt();
     const g = k => ed ? trnEsc(existing[k] || '') : '';
     const groupOpts = this.data.participantGroups || [];
     const chosen = ed ? tnGroupList(String(existing.Groups || '').toUpperCase()) : [];
     const groupBoxes = groupOpts.map(gk => `<label style="display:inline-flex;align-items:center;gap:4px;margin-right:14px;font-weight:400"><input type="checkbox" class="tpGrp" value="${trnEsc(gk)}" ${chosen.indexOf(gk) !== -1 ? 'checked' : ''}> ${trnEsc(tnGrpLabel(gk))}</label>`).join('');
     const depIds = Object.keys(Training.deptMap);
-    const courseOpts = `<option value="">— type the subject below —</option>` + (Training._courses || []).map(cc => `<option value="${trnEsc(cc.CourseID)}" ${ed && String(existing.CourseID || '').trim() === String(cc.CourseID) ? 'selected' : ''}>${trnEsc(cc.CourseCode)} · ${trnEsc(cc.CourseName)}</option>`).join('');
-    const typeSel = `<select class="dc-in" id="tpiType"><option value="">—</option>${TRN_COURSE_TYPES.map(o => `<option value="${o[0]}" ${ed && String(existing.TrainingType).toUpperCase() === o[0] ? 'selected' : ''}>${o[1]}</option>`).join('')}</select>`;
-    const depSel = `<select class="dc-in" id="tpiDept"><option value="">—</option>${depIds.map(id => `<option value="${trnEsc(id)}" ${ed && String(existing.DepartmentID).trim() === id ? 'selected' : ''}>${trnEsc(Training.deptMap[id])}</option>`).join('')}</select>`;
+    // an OJT plan only offers OJT courses, and every item it holds is an OJT item
+    const catalog = (Training._courses || []).filter(cc => !ojt || String(cc.CourseType || '').toUpperCase() === 'OJT');
+    const courseOpts = `<option value="">— type the subject below —</option>` + catalog.map(cc => `<option value="${trnEsc(cc.CourseID)}" ${ed && String(existing.CourseID || '').trim() === String(cc.CourseID) ? 'selected' : ''}>${trnEsc(cc.CourseCode)} · ${trnEsc(cc.CourseName)}</option>`).join('');
+    const curType = ojt ? 'OJT' : (ed ? String(existing.TrainingType).toUpperCase() : '');
+    const typeSel = `<select class="dc-in" id="tpiType" ${ojt ? 'disabled' : ''}>${ojt ? '' : '<option value="">—</option>'}${TRN_COURSE_TYPES.map(o => `<option value="${o[0]}" ${curType === o[0] ? 'selected' : ''}>${o[1]}</option>`).join('')}</select>`;
+    const curDep = ed ? String(existing.DepartmentID || '').trim() : (ojt ? String(this.data.dept || '') : '');
+    const depSel = `<select class="dc-in" id="tpiDept"><option value="">—</option>${depIds.map(id => `<option value="${trnEsc(id)}" ${curDep === id ? 'selected' : ''}>${trnEsc(Training.deptMap[id])}</option>`).join('')}</select>`;
     const scrim = document.createElement('div'); scrim.className = 'dc-scrim';
     scrim.innerHTML = `<div class="dc-modal" style="max-width:640px;max-height:90vh;overflow:auto"><h3 style="margin:0 0 12px">${ed ? 'Edit item' : 'Add item'} <span class="dc-muted" style="font-size:13px">${trnEsc(tpRev2(p.RevNo))}</span></h3>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
@@ -944,7 +970,7 @@ const TrainingPlan = {
         <div class="dc-field"><label>Times <span class="dc-req">*</span></label><input type="number" min="1" class="dc-in" id="tpiTimes" value="${g('Times')}"></div>
         <div class="dc-field"><label>Hours <span class="dc-req">*</span></label><input type="number" min="0" step="0.5" class="dc-in" id="tpiHours" value="${g('PeriodHours')}"></div>
         <div class="dc-field"><label>Headcount <span class="dc-req">*</span></label><input type="number" min="1" class="dc-in" id="tpiHead" value="${g('Headcount')}"></div>
-        <div class="dc-field"><label>Budget <span class="dc-req">*</span></label><input type="number" min="0" step="0.01" class="dc-in" id="tpiBudget" value="${g('Budget')}"></div>
+        <div class="dc-field"><label>Budget ${ojt ? '<span class="dc-muted" style="font-weight:400;font-size:11px">(optional)</span>' : '<span class="dc-req">*</span>'}</label><input type="number" min="0" step="0.01" class="dc-in" id="tpiBudget" value="${g('Budget')}"></div>
         <div class="dc-field dc-span2"><label>Schedule (month × week) <span class="dc-req">*</span></label>${this.weeksGrid(ed ? existing.PlanWeeks : '')}</div>
         <div class="dc-field dc-span2"><label>Remark</label><input class="dc-in" id="tpiRemark" value="${g('Remark')}"></div>
       </div>
@@ -976,10 +1002,11 @@ const TrainingPlan = {
       if (!(Number(v('tpiTimes')) > 0)) miss.push('Times');
       if (!(Number(v('tpiHours')) > 0)) miss.push('Hours');
       if (!(Number(v('tpiHead')) > 0)) miss.push('Headcount');
-      if (budget === '' || !(Number(budget) >= 0)) miss.push('Budget');
+      if (ojt) { if (budget !== '' && !(Number(budget) >= 0)) miss.push('Budget (number)'); }
+      else if (budget === '' || !(Number(budget) >= 0)) miss.push('Budget');
       if (!weeks) miss.push('Schedule');
       if (miss.length) { scrim.querySelector('#tpiErr').innerHTML = `<div class="dc-err">Please fill: ${miss.join(', ')}</div>`; return; }
-      const payload = { token: this.token(), CourseID: v('tpiCourse') || '', Subject: subject, TrainingType: v('tpiType'), DepartmentID: v('tpiDept'), Groups: groups, Times: v('tpiTimes'), PeriodHours: v('tpiHours'), Headcount: v('tpiHead'), Budget: budget, PlanWeeks: weeks, Remark: (v('tpiRemark') || '').trim() };
+      const payload = { token: this.token(), CourseID: v('tpiCourse') || '', Subject: subject, TrainingType: ojt ? 'OJT' : v('tpiType'), DepartmentID: v('tpiDept'), Groups: groups, Times: v('tpiTimes'), PeriodHours: v('tpiHours'), Headcount: v('tpiHead'), Budget: budget, PlanWeeks: weeks, Remark: (v('tpiRemark') || '').trim() };
       const ok = scrim.querySelector('#tpiOk'); ok.disabled = true; ok.textContent = 'Processing…';
       const req = ed ? API.post('updateTrainingPlanItem', Object.assign({ itemId: existing.ItemID }, payload)) : API.post('addTrainingPlanItem', Object.assign({ planId: p.PlanID }, payload));
       req.then(() => { close(); this.toast(ed ? 'Item saved' : 'Item added'); this.load(this._year, this._rev); })
@@ -1139,4 +1166,5 @@ const TrainingPlan = {
   }
 };
 
-function loadTrainingPlan() { TrainingPlan._logo = undefined; TrainingPlan.load(); }
+function loadTrainingPlan() { TrainingPlan._logo = undefined; TrainingPlan._type = 'ANNUAL'; TrainingPlan._rev = ''; TrainingPlan.load(); }
+function loadOjtPlan() { TrainingPlan._logo = undefined; TrainingPlan._type = 'OJT'; TrainingPlan._dept = ''; TrainingPlan._rev = ''; TrainingPlan.load(); }
