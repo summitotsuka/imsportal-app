@@ -112,30 +112,38 @@ const Training = {
           <div class="dc-field dc-span2"><label>อ้างอิง (WI / JES / มาตรฐาน)</label><input class="dc-in" id="cRef" value="${g('Reference')}"></div>
           <div class="dc-field dc-span2"><label>รายละเอียด</label><textarea class="dc-in" id="cDesc" rows="2">${g('Description')}</textarea></div>
           ${ed ? `<div class="dc-field"><label>สถานะ</label><select class="dc-in" id="cStatus"><option value="ACTIVE" ${String(existing.Status).toUpperCase() !== 'INACTIVE' ? 'selected' : ''}>Active</option><option value="INACTIVE" ${String(existing.Status).toUpperCase() === 'INACTIVE' ? 'selected' : ''}>Inactive</option></select></div>` : ''}
-          <div class="dc-field dc-span2"><label>คู่มือการฝึกอบรม</label><div id="cMat">${ed ? this.fileChip(existing.MaterialFileID, existing.MaterialFileName, 'material') : '<span class="dc-faint" style="font-size:12px;color:#9ca3af">บันทึกหลักสูตรก่อน แล้วค่อยแนบคู่มือ</span>'}</div></div>
+          <div class="dc-field dc-span2"><label>คู่มือการฝึกอบรม</label><div id="cMat">${ed ? this.fileChip(existing.MaterialFileID, existing.MaterialFileName, 'material') : '<span class="dc-faint" style="font-size:12px;color:#9ca3af">บันทึกหลักสูตรก่อน แล้วเปิดหลักสูตรจากรายการเพื่อแนบคู่มือ</span>'}</div></div>
         </div>
         <div id="cErr"></div>
-        <div class="dc-bar"><button class="dc-btn dc-ghost" id="cCancel" type="button">Cancel</button><button class="dc-btn dc-primary" id="cSave" type="button">${ed ? 'Save changes' : 'Create'}</button></div>
+        <div class="dc-bar"><button class="dc-btn dc-ghost" id="cCancel" type="button">Cancel</button>${ed ? '' : '<button class="dc-btn dc-ghost" id="cSaveNew" type="button">Create &amp; New</button>'}<button class="dc-btn dc-primary" id="cSave" type="button">${ed ? 'Save changes' : 'Create'}</button></div>
       </div></div><div class="dc-toast" id="dcToast"></div>`;
     const back = () => this.loadCourses();
     document.getElementById('trnBack').addEventListener('click', back);
     document.getElementById('cCancel').addEventListener('click', back);
-    document.getElementById('cSave').addEventListener('click', () => this.saveCourse(ed ? existing.CourseID : null));
+    document.getElementById('cSave').addEventListener('click', () => this.saveCourse(ed ? existing.CourseID : null, false));
+    const cSaveNew = document.getElementById('cSaveNew');
+    if (cSaveNew) cSaveNew.addEventListener('click', () => this.saveCourse(null, true));
     if (ed) this.wireMaterial(existing.CourseID);
   },
 
-  async saveCourse(courseId) {
+  async saveCourse(courseId, andNew) {
     const err = document.getElementById('cErr');
     const v = id => (document.getElementById(id) || {}).value;
     const payload = { token: this.token(), courseId: courseId || undefined, CourseName: (v('cName') || '').trim(), CourseType: v('cType'), Category: (v('cCat') || '').trim(), TargetPosition: (v('cTarget') || '').trim(), DurationHours: v('cHours'), Reference: (v('cRef') || '').trim(), Description: (v('cDesc') || '').trim() };
     if (courseId) payload.Status = v('cStatus');
     if (!payload.CourseName) { err.innerHTML = '<div class="dc-err">กรุณากรอกชื่อหลักสูตร</div>'; return; }
     if (!payload.CourseType) { err.innerHTML = '<div class="dc-err">กรุณาเลือกประเภท</div>'; return; }
-    const btn = document.getElementById('cSave'); btn.disabled = true; btn.textContent = 'Processing…';
+    const btn = document.getElementById(andNew ? 'cSaveNew' : 'cSave');
+    const prev = btn.textContent; btn.disabled = true; btn.textContent = 'Processing…';
     try {
-      if (courseId) { await API.post('updateCourse', payload); this.toast('บันทึกแล้ว'); this.loadCourses(); }
-      else { const r = await API.post('createCourse', payload); this.toast('สร้างหลักสูตรแล้ว: ' + r.courseCode); this.openCourse(r.courseId); }
-    } catch (ex) { btn.disabled = false; btn.textContent = courseId ? 'Save changes' : 'Create'; err.innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'ล้มเหลว')}</div>`; }
+      if (courseId) { await API.post('updateCourse', payload); this._courses = null; this.toast('บันทึกแล้ว'); this.loadCourses(); }
+      else {
+        const r = await API.post('createCourse', payload);
+        this._courses = null;                       // so course dropdowns pick the new one up
+        this.toast('สร้างหลักสูตรแล้ว: ' + r.courseCode);
+        if (andNew) this.courseForm(); else this.loadCourses();
+      }
+    } catch (ex) { btn.disabled = false; btn.textContent = prev; err.innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'ล้มเหลว')}</div>`; }
   },
 
   fileChip(fileId, fileName, kind) {
@@ -307,7 +315,7 @@ const Training = {
 };
 
 function loadTrainingCourses() { Training.loadCourses(); }
-function loadTrainingRecords() { Training._courses = null; Training.loadRecords(); }
+function loadTrainingRecords() { Training.loadRecords(); }
 
 /* ==================== Training Needs (FM-HR-03) — Phase 2a ==================== */
 const TN_TABS = [['inProgress', 'In Progress'], ['forApproval', 'For Approval'], ['inPlan', 'My Training Need'], ['cancelled', 'Cancelled']];
@@ -336,10 +344,13 @@ const TrainingNeeds = {
     if (tab) this._tab = tab;
     if (year) this._year = year;
     this.css();
-    await Training.ensureDepts();
     const c = document.getElementById('pageContent');
     c.innerHTML = `<div class="dc-wrap"><p class="dc-muted" style="padding:8px">Loading…</p></div>`;
-    try { this.data = await API.get('getTrainingNeedInbox', { token: this.token(), year: this._year }); this.render(); }
+    try {
+      const req = API.get('getTrainingNeedInbox', { token: this.token(), year: this._year });
+      await Promise.all([Training.ensureDepts(), Training.loadCourseOptions()]);
+      this.data = await req; this.render();
+    }
     catch (e) { c.innerHTML = `<div class="dc-wrap"><p style="color:#b91c1c;padding:8px">Failed to load: ${trnEsc(e.message || '')}</p></div>`; }
   },
 
@@ -540,7 +551,7 @@ const TrainingNeeds = {
           <div class="dc-field dc-span2"><label>Reason / Justification <span class="dc-req">*</span></label><textarea class="dc-in" id="tnReason" rows="2">${g('Reason')}</textarea></div>
         </div>
         <div id="tnErr"></div>
-        <div class="dc-bar"><button class="dc-btn dc-ghost" id="tnCancel" type="button">Cancel</button><button class="dc-btn dc-primary" id="tnSave" type="button">${ed ? 'Save changes' : 'Create (DRAFT)'}</button></div>
+        <div class="dc-bar"><button class="dc-btn dc-ghost" id="tnCancel" type="button">Cancel</button>${ed ? '' : '<button class="dc-btn dc-ghost" id="tnSaveNew" type="button">Create &amp; New</button>'}<button class="dc-btn dc-primary" id="tnSave" type="button">${ed ? 'Save changes' : 'Create (DRAFT)'}</button></div>
       </div></div><div class="dc-toast" id="dcToast"></div>`;
     // Keep Training Type in sync with catalog choice: a catalog course carries its own type, so lock the select then.
     const courseEl = document.getElementById('tnCourse'), typeEl = document.getElementById('tnType');
@@ -556,10 +567,12 @@ const TrainingNeeds = {
     const back = () => ed ? this.openDetail(existing.NeedID) : this.load();
     document.getElementById('tnBack').addEventListener('click', back);
     document.getElementById('tnCancel').addEventListener('click', back);
-    document.getElementById('tnSave').addEventListener('click', () => this.submitForm(ed ? existing.NeedID : null));
+    document.getElementById('tnSave').addEventListener('click', () => this.submitForm(ed ? existing.NeedID : null, false));
+    const tnSaveNew = document.getElementById('tnSaveNew');
+    if (tnSaveNew) tnSaveNew.addEventListener('click', () => this.submitForm(null, true));
   },
 
-  async submitForm(needId) {
+  async submitForm(needId, andNew) {
     const err = document.getElementById('tnErr');
     const v = id => (document.getElementById(id) || {}).value;
     const groups = Array.prototype.slice.call(document.querySelectorAll('.tnGrp')).filter(x => x.checked).map(x => x.value).join('|');
@@ -572,11 +585,16 @@ const TrainingNeeds = {
     if (!(Number(payload.PeriodHours) > 0)) { err.innerHTML = '<div class="dc-err">Period hours (ชั่วโมง) is required</div>'; return; }
     if (!(Number(payload.Headcount) > 0)) { err.innerHTML = '<div class="dc-err">Headcount is required</div>'; return; }
     if (!payload.Reason) { err.innerHTML = '<div class="dc-err">Reason / justification is required</div>'; return; }
-    const btn = document.getElementById('tnSave'); btn.disabled = true; btn.textContent = 'Processing…';
+    const btn = document.getElementById(andNew ? 'tnSaveNew' : 'tnSave');
+    const prevTxt = btn.textContent; btn.disabled = true; btn.textContent = 'Processing…';
     try {
       if (needId) { await API.post('updateTrainingNeed', payload); this.toast('Saved'); this.openDetail(needId); }
-      else { const r = await API.post('createTrainingNeed', payload); this.toast('Created'); this.openDetail(r.needId); }
-    } catch (ex) { btn.disabled = false; btn.textContent = needId ? 'Save changes' : 'Create (DRAFT)'; err.innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'Failed')}</div>`; }
+      else {
+        const r = await API.post('createTrainingNeed', payload);
+        this.toast('Created');
+        if (andNew) this.openForm(); else this.openDetail(r.needId);
+      }
+    } catch (ex) { btn.disabled = false; btn.textContent = prevTxt; err.innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'Failed')}</div>`; }
   },
 
   async openDetail(needId) {
@@ -671,7 +689,7 @@ const TrainingNeeds = {
   }
 };
 
-function loadTrainingNeeds() { Training._courses = null; Training.loadCourseOptions().then(() => TrainingNeeds.load()); }
+function loadTrainingNeeds() { TrainingNeeds.load(); }
 
 /* ==================== Annual Training Plan (FM-HR-04) — Phase 2b ==================== */
 const TP_STATUS = {
@@ -682,6 +700,7 @@ const TP_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep'
 function tpBadge(st) { const m = TP_STATUS[String(st || '').toUpperCase()] || [st || '—', 'dc-b-off']; return `<span class="dc-badge ${m[1]}">${m[0]}</span>`; }
 function tpRev2(n) { return 'Rev.' + ('0' + (Number(n) || 0)).slice(-2); }
 function tpRevText(p) { return p.Revision || tpRev2(p.RevNo); }
+function tpTypeLabel(t) { const k = String(t || '').toUpperCase(); const f = TRN_COURSE_TYPES.filter(o => o[0] === k)[0]; return f ? f[1] : (k || 'Other'); }
 function tpWeeks(pw) { return String(pw || '').split(',').map(s => s.trim()).filter(Boolean); }
 function tpWeeksText(pw) { return tpWeeks(pw).map(k => { const p = k.split('-'); return (TP_MONTHS[(+p[0]) - 1] || p[0]) + '·' + p[1]; }).join('  '); }
 
@@ -696,13 +715,15 @@ const TrainingPlan = {
     if (year) this._year = year;
     this._rev = (rev === undefined || rev === null) ? '' : rev;
     this.css();
-    await Training.ensureDepts(); await Training.loadCourseOptions();
     const c = document.getElementById('pageContent');
     c.innerHTML = `<div class="dc-wrap"><p class="dc-muted" style="padding:8px">Loading…</p></div>`;
     try {
       const q = { token: this.token(), year: this._year };
       if (this._rev !== '') q.rev = this._rev;
-      this.data = await API.get('getTrainingPlan', q);
+      // fire the page request first, then load the lookups alongside it instead of one after another
+      const req = API.get('getTrainingPlan', q);
+      await Promise.all([Training.ensureDepts(), Training.loadCourseOptions()]);
+      this.data = await req;
       this._rev = this.data.selectedRev === '' ? '' : this.data.selectedRev;
       this.render();
     } catch (e) { c.innerHTML = `<div class="dc-wrap"><p style="color:#b91c1c;padding:8px">Failed to load: ${trnEsc(e.message || '')}</p></div>`; }
@@ -816,9 +837,14 @@ const TrainingPlan = {
     const d = this.data, items = d.items || [], curRev = Number(d.plan.RevNo) || 0;
     const editable = (d.actions || []).indexOf('addItem') !== -1;
     if (!items.length) { box.innerHTML = `<p class="dc-faint" style="padding:6px;color:#9ca3af">No items yet${editable ? ' — use “Pull from Needs” or “Add item”.' : '.'}</p>`; return; }
+    const cols = editable ? 12 : 11;
+    let lastType = null;
     box.innerHTML = `<table class="dc-tbl"><thead><tr><th style="width:34px">#</th><th>Subject</th><th>Dept</th><th>Group</th><th>Times</th><th>Hrs</th><th>Head</th><th>Budget</th><th>Schedule</th><th>Rev</th><th>Remark</th>${editable ? '<th></th>' : ''}</tr></thead><tbody>${items.map(o => {
       const own = (Number(o.RevNo) || 0) === curRev;
-      return `<tr>
+      const t = String(o.TrainingType || '').toUpperCase();
+      let head = '';
+      if (t !== lastType) { lastType = t; head = `<tr><td colspan="${cols}" style="background:#f3f4f6;font-weight:700;font-size:12px">${trnEsc(tpTypeLabel(t))}</td></tr>`; }
+      return head + `<tr>
         <td class="dc-faint">${o.No}</td>
         <td>${trnEsc(o.Subject)}${o.SourceNeedID ? ' <span class="dc-faint" style="font-size:10px">(from need)</span>' : ''}</td>
         <td>${trnEsc(this.deptName(o.DepartmentID))}</td>
@@ -1054,11 +1080,15 @@ const TrainingPlan = {
     const weekHead = TP_MONTHS.map(() => '<th class="wk">1</th><th class="wk">2</th><th class="wk">3</th><th class="wk">4</th>').join('');
     // A planned week is drawn with a thick border (borders print even when background graphics are off).
     const cell = (set, m, w) => set[m + '-' + w] ? '<td class="c"><span class="bar"></span></td>' : '<td class="c"></td>';
+    let lastType = null;
     const rows = items.map(o => {
       const set = {}; tpWeeks(o.PlanWeeks).forEach(k => set[k] = 1);
       let planCells = '', actualCells = '';
       for (let m = 1; m <= 12; m++) for (let w = 1; w <= 4; w++) { planCells += cell(set, m, w); actualCells += '<td class="c"></td>'; }
-      return `<tr><td rowspan="2" class="c">${o.No}</td><td rowspan="2" class="sub">${trnEsc(o.Subject)}</td>
+      const t = String(o.TrainingType || '').toUpperCase();
+      let head = '';
+      if (t !== lastType) { lastType = t; head = `<tr><td colspan="55" class="gh">${trnEsc(tpTypeLabel(t))}</td></tr>`; }
+      return head + `<tr><td rowspan="2" class="c">${o.No}</td><td rowspan="2" class="sub">${trnEsc(o.Subject)}</td>
         <td rowspan="2" class="c">${trnEsc(o.Times)}</td><td rowspan="2" class="c">${trnEsc(o.PeriodHours)}</td>
         <td class="pa">Plan</td>${planCells}<td rowspan="2" class="grp">${trnEsc(tnGroupsCheck(o.Groups))}</td><td rowspan="2" class="rmk">${trnEsc(o.Remark)}</td></tr>
         <tr><td class="pa">Actual</td>${actualCells}</tr>`;
@@ -1073,6 +1103,7 @@ const TrainingPlan = {
       .p4 td.c{width:11px;text-align:center;padding:1px 0}
       .p4 .bar{display:block;width:100%;border-top:8px solid #000;font-size:0;line-height:0}
       .p4 td.pa{font-size:7.5px;white-space:nowrap}.p4 .sub{min-width:150px}
+      .p4 .gh{background:#e8e8e8;font-weight:700;font-size:9px;text-align:left}
       .p4 .grp{min-width:74px;font-size:8px;white-space:normal}.p4 .rmk{min-width:70px}.p4 .foot td{height:16px}
     </style>
     <div class="p4">
@@ -1102,10 +1133,10 @@ const TrainingPlan = {
   csv() {
     const items = this.data.items || [];
     if (!items.length) { this.toast('No items'); return; }
-    const header = ['No', 'Rev', 'Subject', 'Department', 'Type', 'Group', 'Times', 'Hours', 'Headcount', 'Budget', 'Schedule', 'SourceNeedID', 'Remark'];
-    const body = items.map(o => [o.No, tpRev2(o.RevNo), o.Subject, this.deptName(o.DepartmentID), trnLabel(TRN_COURSE_TYPES, o.TrainingType), tnGroupsText(o.Groups), o.Times, o.PeriodHours, o.Headcount, tnMoney(o.Budget), tpWeeksText(o.PlanWeeks), o.SourceNeedID, o.Remark]);
+    const header = ['Type', 'No', 'Rev', 'Subject', 'Department', 'Group', 'Times', 'Hours', 'Headcount', 'Budget', 'Schedule', 'SourceNeedID', 'Remark'];
+    const body = items.map(o => [tpTypeLabel(o.TrainingType), o.No, tpRev2(o.RevNo), o.Subject, this.deptName(o.DepartmentID), tnGroupsText(o.Groups), o.Times, o.PeriodHours, o.Headcount, tnMoney(o.Budget), tpWeeksText(o.PlanWeeks), o.SourceNeedID, o.Remark]);
     trnCsv('training-plan-' + this._year + '-' + tpRev2(this.data.selectedRev) + '.csv', header, body);
   }
 };
 
-function loadTrainingPlan() { Training._courses = null; TrainingPlan._logo = undefined; TrainingPlan.load(); }
+function loadTrainingPlan() { TrainingPlan._logo = undefined; TrainingPlan.load(); }
