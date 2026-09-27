@@ -78,6 +78,7 @@ const NAVIGATION = {
         { id: 'training-needs', label: 'Training Needs' },
         { id: 'training-plan', label: 'Annual Plan' },
         { id: 'training-ojt', label: 'OJT Plan' },
+        { id: 'training-sessions', label: 'Training Sessions' },
         { id: 'training-records', label: 'Training Records' },
         { id: 'training-courses', label: 'Courses' }
       ]

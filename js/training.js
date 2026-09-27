@@ -1168,3 +1168,626 @@ const TrainingPlan = {
 
 function loadTrainingPlan() { TrainingPlan._logo = undefined; TrainingPlan._type = 'ANNUAL'; TrainingPlan._rev = ''; TrainingPlan.load(); }
 function loadOjtPlan() { TrainingPlan._logo = undefined; TrainingPlan._type = 'OJT'; TrainingPlan._dept = ''; TrainingPlan._rev = ''; TrainingPlan.load(); }
+
+/* ==================== Training Sessions · Assignment · Registration — Phase 3 ====================
+   A session (รุ่นอบรม) is one delivery of one APPROVED plan item; a plan item may have many.
+   One status machine for every training type — the type only decides which paper comes out:
+     INTERNAL → FM-HR-06 (one page per department) · EXTERNAL → FM-HR-02 · OJT/ORIENTATION → none
+     every type → FM-HR-07 registration sheet once the list is closed.                            */
+
+const TS_STATUS = {
+  DRAFT: ['Draft', 'dc-b-off'], OPEN: ['Open for Registration', 'dc-b-info'],
+  CONFIRMED: ['Confirmed', 'dc-b-ok'], DONE: ['Trained', 'dc-b-ok'], CLOSED: ['Closed', 'dc-b-ok'],
+  POSTPONED: ['Postponed', 'dc-b-warn'], CANCELLED: ['Cancelled', 'dc-b-cancel']
+};
+const TS_METHODS = [['ATTENDANCE', 'Attendance (เวลาเข้าอบรม)'], ['TEST', 'Test (แบบทดสอบ)'], ['PRACTICAL', 'Practical (ลงมือปฏิบัติ)']];
+const TS_LEVEL_MARKS = ['◔', '◑', '◕', '●'];
+const TS_LEVEL_TH = ['สามารถทำได้ภายใต้คำแนะนำ', 'สามารถทำได้และอธิบายขั้นตอนหลักได้', 'สามารถทำได้และอธิบายจุดสำคัญได้', 'สามารถทำได้และอธิบายเหตุผลการปฏิบัติได้'];
+
+function tsBadge(st) { const m = TS_STATUS[String(st || '').toUpperCase()] || [st || '—', 'dc-b-off']; return `<span class="dc-badge ${m[1]}">${m[0]}</span>`; }
+function tsDeptBadge(st) { return String(st || '').toUpperCase() === 'CONFIRMED' ? '<span class="dc-badge dc-b-ok">Confirmed</span>' : '<span class="dc-badge dc-b-off">Pending</span>'; }
+function tsMethodList(v) { return String(v || '').split('|').map(s => s.trim()).filter(Boolean); }
+function tsMethodsText(v) { return tsMethodList(v).map(m => trnLabel(TS_METHODS, m)).join(' · ') || '—'; }
+function tsLevelMark(n) { const i = (Number(n) || 0) - 1; return TS_LEVEL_MARKS[i] || ''; }
+function tsMoney(v) { const n = Number(v); return (v === '' || v == null || isNaN(n)) ? '' : n.toLocaleString('en-US'); }
+function tsRange(a, b) { const s = trnDate(a), e = b && String(b) !== String(a) ? trnDate(b) : ''; return e ? s + ' → ' + e : s; }
+
+/** Criteria sentence printed on every form, built from the session's own settings. */
+function tsCriteriaText(s) {
+  const out = [];
+  const m = tsMethodList(s.AssessMethods);
+  if (m.indexOf('ATTENDANCE') !== -1) out.push('เวลาการเข้าอบรมต้องเท่ากับ ' + (s.MinAttendPct || 100) + '%');
+  if (m.indexOf('TEST') !== -1) out.push('แบบทดสอบคะแนนเต็ม ' + (s.FullScore || '____') + ' คะแนน ต้องได้ไม่น้อยกว่า ' + (s.PassScore || '____') + ' คะแนน');
+  if (m.indexOf('PRACTICAL') !== -1) {
+    const lv = Number(s.MinLevel) || 3;
+    out.push('การลงมือปฏิบัติต้องถึงระดับ ' + tsLevelMark(lv) + ' (' + (lv * 25) + '%) ' + (TS_LEVEL_TH[lv - 1] || ''));
+  }
+  return out.length ? out.join('  ·  ') : '—';
+}
+
+const TrainingSession = {
+  _year: null, _type: '', _status: '', _q: '', _id: '', data: null, _logo: undefined, _items: null,
+  token() { return AUTH.getToken(); },
+  css() { Training.css(); },
+  toast(m) { Training.toast(m); },
+
+  /* ------------------------------ list ------------------------------ */
+
+  async load(year) {
+    this.css();
+    if (year !== undefined) this._year = year;
+    this._id = '';
+    const c = document.getElementById('pageContent');
+    c.innerHTML = `<div class="dc-wrap"><p class="dc-muted" style="padding:8px">Loading…</p></div>`;
+    const q = { token: this.token() };
+    if (this._year) q.year = this._year;
+    if (this._type) q.type = this._type;
+    if (this._status) q.status = this._status;
+    if (this._q) q.q = this._q;
+    try {
+      const req = API.get('getTrainingSessions', q);           // fire first, warm the caches in parallel
+      await Training.ensureDepts();
+      this.data = await req;
+      this._year = this.data.year;
+      this.renderList();
+    } catch (e) {
+      c.innerHTML = `<div class="dc-wrap"><p style="color:#b91c1c;padding:8px">Failed to load: ${trnEsc(e.message || '')}</p></div>`;
+    }
+  },
+
+  renderList() {
+    const d = this.data, list = d.sessions || [];
+    const yearOpts = (d.years || []).map(y => `<option value="${y}" ${Number(y) === Number(d.year) ? 'selected' : ''}>${y}</option>`).join('');
+    const typeOpts = `<option value="">All types</option>` + TRN_COURSE_TYPES.map(o => `<option value="${o[0]}" ${this._type === o[0] ? 'selected' : ''}>${o[1]}</option>`).join('');
+    const stOpts = `<option value="">All statuses</option>` + Object.keys(TS_STATUS).map(k => `<option value="${k}" ${this._status === k ? 'selected' : ''}>${TS_STATUS[k][0]}</option>`).join('');
+    const rows = list.map(o => `<tr class="dc-row" data-id="${trnEsc(o.SessionID)}">
+      <td><span class="dc-id">${trnEsc(o.SessionNo)}</span></td>
+      <td>${trnEsc(o.Subject)}${o.CourseCode ? `<div class="dc-faint" style="font-size:11px">${trnEsc(o.CourseCode)}</div>` : ''}</td>
+      <td>${trnEsc(tpTypeLabel(o.TrainingType))}</td>
+      <td>${trnEsc(tsRange(o.StartDate, o.EndDate))}${o.TimeText ? `<div class="dc-faint" style="font-size:11px">${trnEsc(o.TimeText)}</div>` : ''}</td>
+      <td>${trnEsc(Training.deptName(o.OrganizerDept))}</td>
+      <td class="dc-faint">${o.deptConfirmed}/${o.deptCount}</td>
+      <td class="dc-faint">${o.attendees}${o.Quota ? ' / ' + o.Quota : ''}</td>
+      <td>${tsBadge(o.Status)}</td>
+    </tr>`).join('');
+    const c = document.getElementById('pageContent');
+    c.innerHTML = `<div class="dc-wrap">
+      <div class="dc-ph" style="margin-bottom:14px"><div><h1 style="margin:0">Training Sessions</h1>
+        <p class="dc-muted" style="margin:4px 0 0">รุ่นอบรม · ใบส่งพนักงานเข้าฝึกอบรม · ใบลงทะเบียน</p></div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="dc-btn dc-ghost" id="tsCsv" type="button">CSV</button>
+          ${d.canCreate ? '<button class="dc-btn dc-primary" id="tsNew" type="button">+ New Session</button>' : ''}
+        </div></div>
+      <div class="dc-card" style="margin-bottom:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="dc-field" style="margin:0"><label>Year</label><select class="dc-in" id="tsYear" style="width:110px">${yearOpts}</select></div>
+        <div class="dc-field" style="margin:0"><label>Type</label><select class="dc-in" id="tsType" style="width:180px">${typeOpts}</select></div>
+        <div class="dc-field" style="margin:0"><label>Status</label><select class="dc-in" id="tsSt" style="width:190px">${stOpts}</select></div>
+        <div class="dc-field" style="margin:0;flex:1;min-width:180px"><label>Search</label><input class="dc-in" id="tsQ" value="${trnEsc(this._q)}" placeholder="course · session no · trainer"></div>
+      </div>
+      <div class="dc-card">${list.length ? `<table class="dc-tbl"><thead><tr><th>Session</th><th>หลักสูตร</th><th>ประเภท</th><th>วันที่อบรม</th><th>ผู้จัด</th><th>ฝ่ายยืนยัน</th><th>คน</th><th>สถานะ</th></tr></thead><tbody>${rows}</tbody></table>`
+        : '<p class="dc-faint" style="padding:6px;color:#9ca3af">ยังไม่มีรุ่นอบรมในปีนี้</p>'}</div>
+    </div><div class="dc-toast" id="dcToast"></div>`;
+
+    const re = () => this.load(Number(document.getElementById('tsYear').value));
+    document.getElementById('tsYear').addEventListener('change', re);
+    document.getElementById('tsType').addEventListener('change', e => { this._type = e.target.value; re(); });
+    document.getElementById('tsSt').addEventListener('change', e => { this._status = e.target.value; re(); });
+    const qi = document.getElementById('tsQ');
+    qi.addEventListener('keydown', e => { if (e.key === 'Enter') { this._q = qi.value.trim(); re(); } });
+    qi.addEventListener('blur', () => { if (qi.value.trim() !== this._q) { this._q = qi.value.trim(); re(); } });
+    document.getElementById('tsCsv').addEventListener('click', () => this.csv());
+    const nb = document.getElementById('tsNew');
+    if (nb) nb.addEventListener('click', () => this.pickPlanItem());
+    c.querySelectorAll('[data-id]').forEach(r => r.addEventListener('click', () => this.openDetail(r.dataset.id)));
+  },
+
+  csv() {
+    const list = (this.data && this.data.sessions) || [];
+    if (!list.length) { this.toast('Nothing to export'); return; }
+    trnCsv('training-sessions-' + this._year + '.csv',
+      ['Session No', 'Course Code', 'Subject', 'Type', 'Start', 'End', 'Time', 'Hours', 'Organizer', 'Provider', 'Trainer', 'Venue', 'Depts', 'Confirmed', 'Attendees', 'Quota', 'Cost', 'Assessment', 'Status'],
+      list.map(o => [o.SessionNo, o.CourseCode, o.Subject, o.TrainingType, o.StartDate, o.EndDate, o.TimeText, o.Hours,
+        Training.deptName(o.OrganizerDept), o.Provider, o.Trainer, o.Venue, o.deptCount, o.deptConfirmed, o.attendees, o.Quota, o.Cost, o.AssessMethods, o.Status]));
+  },
+
+  /* ------------------------------ create ------------------------------ */
+
+  /** Step 1 of creating a session: pick the APPROVED plan item it delivers. */
+  async pickPlanItem() {
+    this.css();
+    const c = document.getElementById('pageContent');
+    c.innerHTML = `<div class="dc-wrap"><p class="dc-muted" style="padding:8px">Loading plan items…</p></div>`;
+    let r;
+    try { r = await API.get('getSessionPlanItems', { token: this.token(), year: this._year }); }
+    catch (e) { this.toast(e.message || 'Failed'); this.load(); return; }
+    const items = r.items || [];
+    this._items = items;
+    const rows = items.map(o => `<tr class="dc-row" data-item="${trnEsc(o.ItemID)}">
+      <td>${trnEsc(o.Subject)}</td>
+      <td>${trnEsc(tpTypeLabel(o.TrainingType))}</td>
+      <td>${trnEsc(o.PlanType === 'OJT' ? Training.deptName(o.ScopeDept) : (o.DepartmentID ? Training.deptName(o.DepartmentID) : 'ทุกฝ่าย'))}</td>
+      <td class="dc-faint">${trnEsc(tpWeeksText(o.PlanWeeks)) || '—'}</td>
+      <td class="dc-faint">${o.Times || '—'} × ${o.PeriodHours || '—'} ชม.</td>
+      <td class="dc-faint">${o.Headcount || '—'}</td>
+      <td class="dc-faint">${o.sessions} รุ่น / ${o.assigned} คน</td>
+    </tr>`).join('');
+    c.innerHTML = `<div class="dc-wrap"><button class="dc-back" id="tsBack">← Back</button>
+      <div class="dc-card">
+        <h1 style="margin:0 0 4px;font-size:20px">New Session — เลือกรายการจากแผน</h1>
+        <p class="dc-muted" style="margin:0 0 14px">ทุกรุ่นอบรมต้องมาจากรายการในแผนที่อนุมัติแล้ว (ปี ${trnEsc(String(this._year))}) · 1 รายการเปิดได้หลายรุ่น</p>
+        ${items.length ? `<table class="dc-tbl"><thead><tr><th>หลักสูตร</th><th>ประเภท</th><th>ฝ่าย</th><th>ตามแผน</th><th>ครั้ง × ชม.</th><th>เป้าหมาย</th><th>จัดไปแล้ว</th></tr></thead><tbody>${rows}</tbody></table>`
+        : '<p class="dc-faint" style="padding:6px;color:#9ca3af">ยังไม่มีรายการในแผนที่อนุมัติแล้วสำหรับปีนี้ (หรือคุณไม่ใช่ผู้จัดของรายการเหล่านั้น)</p>'}
+      </div></div><div class="dc-toast" id="dcToast"></div>`;
+    document.getElementById('tsBack').addEventListener('click', () => this.load());
+    c.querySelectorAll('[data-item]').forEach(tr => tr.addEventListener('click', () => {
+      this.sessionForm(null, items.filter(x => String(x.ItemID) === tr.dataset.item)[0]);
+    }));
+  },
+
+  /** Step 2 (and the edit form): the session's own details. */
+  sessionForm(existing, item) {
+    this.css();
+    const ed = !!existing;
+    const s = existing || {};
+    const type = String((ed ? s.TrainingType : item.TrainingType) || '').toUpperCase();
+    const methods = tsMethodList(ed ? s.AssessMethods : 'ATTENDANCE');
+    const g = k => trnEsc(ed ? (s[k] == null ? '' : s[k]) : '');
+    const subject = ed ? s.Subject : item.Subject;
+    const hours = ed ? s.Hours : (item.PeriodHours || '');
+    const quota = ed ? s.Quota : (item.Headcount || '');
+    const chk = m => `<label style="display:inline-flex;gap:6px;align-items:center;margin-right:16px;font-size:13px">
+      <input type="checkbox" class="tsM" value="${m[0]}" ${methods.indexOf(m[0]) !== -1 ? 'checked' : ''}> ${m[1]}</label>`;
+    const c = document.getElementById('pageContent');
+    c.innerHTML = `<div class="dc-wrap"><button class="dc-back" id="tsBack">← Back</button>
+      <div class="dc-card">
+        <h1 style="margin:0 0 4px;font-size:20px">${ed ? 'Edit Session' : 'New Session'}</h1>
+        <p class="dc-muted" style="margin:0 0 4px">${trnEsc(subject)} · ${trnEsc(tpTypeLabel(type))}${ed ? ' · ' + trnEsc(s.SessionNo) : ''}</p>
+        <p class="dc-faint" style="margin:0 0 16px;font-size:12px">เอกสารขอฝึกอบรม: <b>${type === 'INTERNAL' ? 'FM-HR-06 (พิมพ์แยกต่อฝ่าย)' : type === 'EXTERNAL' ? 'FM-HR-02' : 'ไม่ต้องพิมพ์'}</b> · ใบลงทะเบียน: <b>FM-HR-07</b></p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="dc-field"><label>วันที่เริ่มอบรม <span class="dc-req">*</span></label><input type="date" class="dc-in" id="tsStart" value="${ed ? trnEsc(s.StartDate) : ''}"></div>
+          <div class="dc-field"><label>วันที่สิ้นสุด</label><input type="date" class="dc-in" id="tsEnd" value="${ed ? trnEsc(s.EndDate) : ''}"></div>
+          <div class="dc-field"><label>เวลา</label><input class="dc-in" id="tsTime" value="${g('TimeText')}" placeholder="09:00-16:00"></div>
+          <div class="dc-field"><label>จำนวนชั่วโมง <span class="dc-req">*</span></label><input type="number" min="0" step="0.5" class="dc-in" id="tsHours" value="${trnEsc(hours)}"></div>
+          <div class="dc-field"><label>สถานที่</label><input class="dc-in" id="tsVenue" value="${g('Venue')}"></div>
+          <div class="dc-field"><label>วิทยากร</label><input class="dc-in" id="tsTrainer" value="${g('Trainer')}"></div>
+          <div class="dc-field"><label>สถาบันผู้จัด ${type === 'EXTERNAL' ? '<span class="dc-req">*</span>' : ''}</label><input class="dc-in" id="tsProv" value="${g('Provider')}"></div>
+          <div class="dc-field"><label>ค่าลงทะเบียน (บาท)</label><input type="number" min="0" step="1" class="dc-in" id="tsCost" value="${g('Cost')}"></div>
+          <div class="dc-field"><label>จำนวนที่รับ (Quota)</label><input type="number" min="0" step="1" class="dc-in" id="tsQuota" value="${trnEsc(quota)}"></div>
+          <div class="dc-field dc-span2"><label>วัตถุประสงค์ / ประโยชน์ที่คาดว่าจะได้รับ</label><textarea class="dc-in" id="tsObj" rows="2">${g('Objective')}</textarea></div>
+          <div class="dc-field dc-span2"><label>วิธีประเมินผล <span class="dc-req">*</span> <span class="dc-faint" style="font-weight:400;font-size:11.5px">(เลือกได้หลายวิธี)</span></label>
+            <div style="padding:4px 0">${TS_METHODS.map(chk).join('')}</div></div>
+          <div class="dc-field"><label>เวลาเข้าอบรมขั้นต่ำ (%)</label><input type="number" min="0" max="100" step="1" class="dc-in" id="tsPct" value="${ed ? trnEsc(s.MinAttendPct) : 100}"></div>
+          <div class="dc-field"><label>ระดับปฏิบัติที่ถือว่าผ่าน</label><select class="dc-in" id="tsLv">${[1, 2, 3, 4].map(n => `<option value="${n}" ${Number(ed ? s.MinLevel : 3) === n ? 'selected' : ''}>${TS_LEVEL_MARKS[n - 1]} ${n * 25}% — ${TS_LEVEL_TH[n - 1]}</option>`).join('')}</select></div>
+          <div class="dc-field"><label>คะแนนเต็ม</label><input type="number" min="0" step="1" class="dc-in" id="tsFull" value="${g('FullScore')}"></div>
+          <div class="dc-field"><label>คะแนนผ่าน</label><input type="number" min="0" step="1" class="dc-in" id="tsPass" value="${g('PassScore')}"></div>
+          <div class="dc-field dc-span2"><label>หมายเหตุ</label><input class="dc-in" id="tsRmk" value="${g('Remark')}"></div>
+        </div>
+        <div id="tsErr"></div>
+        <div class="dc-bar"><button class="dc-btn dc-ghost" id="tsCancel" type="button">Cancel</button>
+          <button class="dc-btn dc-primary" id="tsSave" type="button">${ed ? 'Save changes' : 'Create session'}</button></div>
+      </div></div><div class="dc-toast" id="dcToast"></div>`;
+
+    const back = () => ed ? this.openDetail(s.SessionID) : this.pickPlanItem();
+    document.getElementById('tsBack').addEventListener('click', back);
+    document.getElementById('tsCancel').addEventListener('click', back);
+    document.getElementById('tsSave').addEventListener('click', async ev => {
+      const bt = ev.currentTarget, prev = bt.textContent;
+      const num = id => { const v = document.getElementById(id).value; return v === '' ? '' : Number(v); };
+      const payload = {
+        token: this.token(),
+        StartDate: document.getElementById('tsStart').value,
+        EndDate: document.getElementById('tsEnd').value,
+        TimeText: document.getElementById('tsTime').value.trim(),
+        Hours: num('tsHours'), Venue: document.getElementById('tsVenue').value.trim(),
+        Trainer: document.getElementById('tsTrainer').value.trim(),
+        Provider: document.getElementById('tsProv').value.trim(),
+        Cost: num('tsCost'), Quota: num('tsQuota'),
+        Objective: document.getElementById('tsObj').value.trim(),
+        AssessMethods: Array.prototype.map.call(document.querySelectorAll('.tsM:checked'), x => x.value).join('|'),
+        MinAttendPct: num('tsPct'), MinLevel: num('tsLv'), FullScore: num('tsFull'), PassScore: num('tsPass'),
+        Remark: document.getElementById('tsRmk').value.trim()
+      };
+      const err = m => { document.getElementById('tsErr').innerHTML = `<div class="dc-err">${trnEsc(m)}</div>`; };
+      if (!payload.StartDate) return err('กรุณาระบุวันที่เริ่มอบรม');
+      if (!(Number(payload.Hours) > 0)) return err('กรุณาระบุจำนวนชั่วโมง');
+      if (!payload.AssessMethods) return err('กรุณาเลือกวิธีประเมินผลอย่างน้อย 1 วิธี');
+      if (payload.AssessMethods.indexOf('TEST') !== -1 && !(Number(payload.FullScore) > 0 && Number(payload.PassScore) > 0)) return err('วิธีประเมินแบบทดสอบต้องระบุคะแนนเต็มและคะแนนผ่าน');
+      bt.disabled = true; bt.textContent = 'Processing…';
+      try {
+        if (ed) { await API.post('updateTrainingSession', Object.assign({ sessionId: s.SessionID }, payload)); this.toast('บันทึกแล้ว'); this.openDetail(s.SessionID); }
+        else {
+          const r = await API.post('createTrainingSession', Object.assign({ PlanItemID: item.ItemID }, payload));
+          this.toast(r.message || 'Created'); this.openDetail(r.sessionId);
+        }
+      } catch (ex) { bt.disabled = false; bt.textContent = prev; err((ex && ex.message) || 'Failed'); }
+    });
+  },
+
+  /* ------------------------------ detail ------------------------------ */
+
+  async openDetail(sessionId) {
+    this.css();
+    this._id = sessionId;
+    const c = document.getElementById('pageContent');
+    c.innerHTML = `<div class="dc-wrap"><p class="dc-muted" style="padding:8px">Loading…</p></div>`;
+    try {
+      const req = API.get('getTrainingSession', { token: this.token(), sessionId });
+      await Training.ensureDepts();
+      this.detail = await req;
+      this.renderDetail();
+    } catch (e) {
+      c.innerHTML = `<div class="dc-wrap"><button class="dc-back" id="tsBack">← Back</button><p style="color:#b91c1c;padding:8px">${trnEsc(e.message || 'Failed')}</p></div>`;
+      const b = document.getElementById('tsBack'); if (b) b.addEventListener('click', () => this.load());
+    }
+  },
+
+  renderDetail() {
+    const d = this.detail, s = d.session, acts = d.actions || [];
+    const depts = d.depts || [], att = d.attendees || [];
+    const has = a => acts.indexOf(a) !== -1;
+    const info = [
+      ['ประเภท', tpTypeLabel(s.TrainingType)],
+      ['วันที่อบรม', tsRange(s.StartDate, s.EndDate) + (s.TimeText ? '  (' + s.TimeText + ')' : '')],
+      ['จำนวนชั่วโมง', (s.Hours || '—') + ' ชม.'],
+      ['สถานที่', s.Venue || '—'],
+      ['วิทยากร', s.Trainer || '—'],
+      ['สถาบันผู้จัด', s.Provider || '—'],
+      ['ค่าลงทะเบียน', tsMoney(s.Cost) ? tsMoney(s.Cost) + ' บาท' : '—'],
+      ['ผู้จัด', Training.deptName(s.OrganizerDept)],
+      ['จำนวนที่รับ', (s.Quota || '—') + ' คน'],
+      ['วิธีประเมินผล', tsMethodsText(s.AssessMethods)],
+      ['เกณฑ์ผ่าน', tsCriteriaText(s)],
+      ['เอกสารขอฝึกอบรม', d.requestDoc || 'ไม่ต้องพิมพ์']
+    ].map(r => `<tr><td class="k">${trnEsc(r[0])}</td><td>${trnEsc(r[1])}</td></tr>`).join('');
+
+    const deptRows = depts.map(o => {
+      const btns = [];
+      if (String(s.Status).toUpperCase() === 'OPEN' && o.mine) {
+        if (String(o.Status).toUpperCase() !== 'CONFIRMED') {
+          btns.push(`<button class="dc-btn dc-ghost dc-sm" data-assign="${trnEsc(o.DepartmentID)}" type="button">+ Employees</button>`);
+          if (o.canConfirm) btns.push(`<button class="dc-btn dc-primary dc-sm" data-confirm="${trnEsc(o.DepartmentID)}" type="button">Confirm list</button>`);
+        } else if (o.canConfirm || d.isOrganiser) {
+          btns.push(`<button class="dc-btn dc-ghost dc-sm" data-unconfirm="${trnEsc(o.DepartmentID)}" type="button">Reopen list</button>`);
+        }
+      }
+      if (d.isOrganiser && ['DRAFT', 'OPEN'].indexOf(String(s.Status).toUpperCase()) !== -1 && !o.assigned) {
+        btns.push(`<button class="dc-btn dc-ghost dc-sm" data-rmdept="${trnEsc(o.DepartmentID)}" type="button">Remove</button>`);
+      }
+      if (String(o.Status).toUpperCase() === 'CONFIRMED' && d.requestDoc === 'FM-HR-06') {
+        btns.push(`<button class="dc-btn dc-ghost dc-sm" data-print6="${trnEsc(o.DepartmentID)}" type="button">FM-HR-06</button>`);
+      }
+      return `<tr><td>${trnEsc(Training.deptName(o.DepartmentID))}</td>
+        <td class="dc-faint">${o.assigned}${o.Quota ? ' / ' + o.Quota : ''}</td>
+        <td>${tsDeptBadge(o.Status)}</td>
+        <td class="dc-faint">${o.ConfirmedByName ? trnEsc(o.ConfirmedByName) + ' · ' + trnEsc(trnDate(o.ConfirmedDate)) : '—'}</td>
+        <td style="white-space:nowrap">${btns.join(' ')}</td></tr>`;
+    }).join('');
+
+    const deptStatus = {}; depts.forEach(o => { deptStatus[String(o.DepartmentID)] = String(o.Status || '').toUpperCase(); });
+    const openNow = String(s.Status).toUpperCase() === 'OPEN';
+    let lastDept = null, n = 0;
+    const attRows = att.map(a => {
+      let head = '';
+      if (String(a.DepartmentID) !== lastDept) { lastDept = String(a.DepartmentID); head = `<tr><td colspan="6" style="background:#f3f4f6;font-weight:600">${trnEsc(Training.deptName(a.DepartmentID))}</td></tr>`; }
+      const canRemove = openNow && deptStatus[String(a.DepartmentID)] !== 'CONFIRMED'
+        && (d.isOrganiser || (d.myDepts || []).indexOf(String(a.DepartmentID)) !== -1);
+      return head + `<tr><td class="dc-faint">${++n}</td><td><span class="dc-id">${trnEsc(a.EmployeeID)}</span></td>
+        <td>${trnEsc(a.EmployeeName)}</td><td class="dc-faint">${trnEsc(a.Position)}</td>
+        <td class="dc-faint">${trnEsc(a.AssignedByName)}</td>
+        <td>${canRemove ? `<button class="dc-btn dc-ghost dc-sm" data-rmatt="${trnEsc(a.AttendeeID)}" type="button">Remove</button>` : ''}</td></tr>`;
+    }).join('');
+
+    const bar = [];
+    if (has('edit')) bar.push('<button class="dc-btn dc-ghost" data-a="edit" type="button">Edit</button>');
+    if (has('depts')) bar.push('<button class="dc-btn dc-ghost" data-a="depts" type="button">+ Departments</button>');
+    if (has('open')) bar.push('<button class="dc-btn dc-primary" data-a="open" type="button">Open registration</button>');
+    if (has('close')) bar.push('<button class="dc-btn dc-primary" data-a="close" type="button">Close registration</button>');
+    if (has('reopen')) bar.push('<button class="dc-btn dc-ghost" data-a="reopen" type="button">Reopen registration</button>');
+    if (has('printExtReq')) bar.push('<button class="dc-btn dc-ghost" data-a="printExtReq" type="button">Print FM-HR-02</button>');
+    if (has('printAssign')) bar.push('<button class="dc-btn dc-ghost" data-a="printAssign" type="button">Print FM-HR-06 (all depts)</button>');
+    if (has('printRegister')) bar.push('<button class="dc-btn dc-ghost" data-a="printRegister" type="button">Print FM-HR-07</button>');
+    if (has('postpone')) bar.push('<button class="dc-btn dc-ghost" data-a="postpone" type="button">Postpone</button>');
+    if (has('cancel')) bar.push('<button class="dc-btn dc-ghost" data-a="cancel" type="button">Cancel session</button>');
+
+    const hist = (d.history || []).map(h => `<tr><td class="dc-faint">${trnEsc(trnDate(h.Timestamp))}</td><td>${trnEsc(h.Action)}</td>
+      <td>${trnEsc(h.ActorName)}</td><td class="dc-faint">${trnEsc(h.Comment)}</td></tr>`).join('');
+
+    const c = document.getElementById('pageContent');
+    c.innerHTML = `<div class="dc-wrap"><button class="dc-back" id="tsBack">← Back to sessions</button>
+      <div class="dc-ph" style="margin-bottom:12px"><div>
+        <h1 style="margin:0;font-size:22px">${trnEsc(s.Subject)}</h1>
+        <p class="dc-muted" style="margin:4px 0 0">${trnEsc(s.SessionNo)}${s.CourseCode ? ' · ' + trnEsc(s.CourseCode) : ''} &nbsp; ${tsBadge(s.Status)}</p>
+        ${s.PostponeReason ? `<p class="dc-faint" style="margin:6px 0 0;font-size:12px">เลื่อน: ${trnEsc(s.PostponeReason)}</p>` : ''}
+        ${s.CancelReason ? `<p class="dc-faint" style="margin:6px 0 0;font-size:12px">ยกเลิก: ${trnEsc(s.CancelReason)}</p>` : ''}
+      </div></div>
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:12px;align-items:start">
+        <div class="dc-card"><h3 style="margin:0 0 10px;font-size:15px">รายละเอียดรุ่นอบรม</h3>
+          <table class="dc-tbl ts-kv"><tbody>${info}</tbody></table></div>
+        <div class="dc-card"><h3 style="margin:0 0 10px;font-size:15px">ฝ่ายที่เข้าอบรม <span class="dc-faint" style="font-weight:400;font-size:12px">(ทุกฝ่ายต้องยืนยันก่อนปิดรับ)</span></h3>
+          ${depts.length ? `<table class="dc-tbl"><thead><tr><th>ฝ่าย</th><th>คน</th><th>สถานะ</th><th>ยืนยันโดย</th><th></th></tr></thead><tbody>${deptRows}</tbody></table>`
+        : '<p class="dc-faint" style="padding:6px;color:#9ca3af">ยังไม่มีฝ่ายถูกเรียกเข้าอบรม</p>'}</div>
+      </div>
+      <div class="dc-card" style="margin-top:12px"><h3 style="margin:0 0 10px;font-size:15px">รายชื่อผู้เข้าอบรม <span class="dc-faint" style="font-weight:400;font-size:12px">${att.length} คน</span></h3>
+        ${att.length ? `<table class="dc-tbl"><thead><tr><th>#</th><th>รหัส</th><th>ชื่อ-นามสกุล</th><th>ตำแหน่ง</th><th>เพิ่มโดย</th><th></th></tr></thead><tbody>${attRows}</tbody></table>`
+        : '<p class="dc-faint" style="padding:6px;color:#9ca3af">ยังไม่มีรายชื่อ</p>'}</div>
+      <div id="tsActErr"></div>
+      ${bar.length ? `<div class="dc-bar" style="margin-top:12px;flex-wrap:wrap">${bar.join('')}</div>` : ''}
+      ${hist ? `<div class="dc-card" style="margin-top:12px"><h3 style="margin:0 0 10px;font-size:15px">ประวัติ</h3>
+        <table class="dc-tbl"><thead><tr><th>วันที่</th><th>การกระทำ</th><th>ผู้ทำ</th><th>หมายเหตุ</th></tr></thead><tbody>${hist}</tbody></table></div>` : ''}
+      <style>.ts-kv td.k{width:150px;color:#6b7280;font-size:12.5px}.dc-sm{padding:3px 8px;font-size:11.5px}</style>
+    </div><div class="dc-toast" id="dcToast"></div>`;
+
+    document.getElementById('tsBack').addEventListener('click', () => this.load());
+    c.querySelectorAll('[data-a]').forEach(b => b.addEventListener('click', ev => this.onAction(b.dataset.a, ev.currentTarget)));
+    c.querySelectorAll('[data-assign]').forEach(b => b.addEventListener('click', () => this.assignModal(b.dataset.assign)));
+    c.querySelectorAll('[data-confirm]').forEach(b => b.addEventListener('click', ev => this.run('confirmSessionDept', { sessionId: s.SessionID, dept: b.dataset.confirm }, 'ยืนยันรายชื่อแล้ว', ev.currentTarget)));
+    c.querySelectorAll('[data-unconfirm]').forEach(b => b.addEventListener('click', ev => this.run('unconfirmSessionDept', { sessionId: s.SessionID, dept: b.dataset.unconfirm }, 'เปิดรายชื่อให้แก้ไขแล้ว', ev.currentTarget)));
+    c.querySelectorAll('[data-rmdept]').forEach(b => b.addEventListener('click', ev => this.run('removeSessionDept', { sessionId: s.SessionID, dept: b.dataset.rmdept }, 'ลบฝ่ายแล้ว', ev.currentTarget)));
+    c.querySelectorAll('[data-rmatt]').forEach(b => b.addEventListener('click', ev => this.run('removeSessionAttendee', { attendeeId: b.dataset.rmatt }, 'ลบรายชื่อแล้ว', ev.currentTarget)));
+    c.querySelectorAll('[data-print6]').forEach(b => b.addEventListener('click', () => this.printAssign(b.dataset.print6)));
+  },
+
+  onAction(a, bt) {
+    const s = this.detail.session, id = s.SessionID;
+    if (a === 'edit') return this.sessionForm(s);
+    if (a === 'depts') return this.deptModal();
+    if (a === 'open') return this.run('openTrainingSession', { sessionId: id }, 'เปิดรับสมัครแล้ว', bt);
+    if (a === 'close') return this.run('closeSessionRegistration', { sessionId: id }, 'ปิดรับสมัครแล้ว', bt);
+    if (a === 'reopen') return this.reasonModal('Reopen registration', 'reopenSessionRegistration', { sessionId: id }, false);
+    if (a === 'postpone') return this.reasonModal('Postpone this session', 'postponeTrainingSession', { sessionId: id }, true);
+    if (a === 'cancel') return this.reasonModal('Cancel this session', 'cancelTrainingSession', { sessionId: id }, false);
+    if (a === 'printAssign') return this.printAssign('');
+    if (a === 'printExtReq') return this.printExtReq();
+    if (a === 'printRegister') return this.printRegister();
+  },
+
+  async run(action, payload, okMsg, bt) {
+    let prev = ''; if (bt) { prev = bt.textContent; bt.disabled = true; bt.textContent = 'Processing…'; }
+    try { await API.post(action, Object.assign({ token: this.token() }, payload)); this.toast(okMsg); this.openDetail(this._id); }
+    catch (ex) {
+      if (bt) { bt.disabled = false; bt.textContent = prev; }
+      const e = document.getElementById('tsActErr');
+      if (e) e.innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'Failed')}</div>`; else this.toast((ex && ex.message) || 'Failed');
+    }
+  },
+
+  /** Reason prompt; withDate also offers a new start date (postpone). */
+  reasonModal(title, action, payload, withDate) {
+    const scrim = document.createElement('div'); scrim.className = 'dc-scrim';
+    scrim.innerHTML = `<div class="dc-modal"><h3 style="margin:0 0 12px">${trnEsc(title)}</h3>
+      ${withDate ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+        <div class="dc-field" style="margin:0"><label>วันที่เริ่มใหม่ <span class="dc-faint" style="font-weight:400;font-size:11px">(เว้นว่าง = ยังไม่กำหนด)</span></label><input type="date" class="dc-in" id="tsRmD"></div>
+        <div class="dc-field" style="margin:0"><label>ถึงวันที่</label><input type="date" class="dc-in" id="tsRmD2"></div></div>` : ''}
+      <label style="font-size:12.5px;font-weight:600;display:block;margin-bottom:4px">เหตุผล <span class="dc-req">*</span></label>
+      <textarea class="dc-in" id="tsRm" rows="3"></textarea><div id="tsRmErr"></div>
+      <div class="dc-bar"><button class="dc-btn dc-ghost" id="tsRmX" type="button">Cancel</button><button class="dc-btn dc-primary" id="tsRmOk" type="button">Confirm</button></div></div>`;
+    document.body.appendChild(scrim);
+    const close = () => scrim.remove();
+    scrim.querySelector('#tsRmX').addEventListener('click', close);
+    scrim.querySelector('#tsRmOk').addEventListener('click', () => {
+      const reason = scrim.querySelector('#tsRm').value.trim();
+      if (!reason) { scrim.querySelector('#tsRmErr').innerHTML = '<div class="dc-err">กรุณาระบุเหตุผล</div>'; return; }
+      const body = Object.assign({ token: this.token(), reason: reason, comment: reason }, payload);
+      if (withDate) { body.StartDate = scrim.querySelector('#tsRmD').value; body.EndDate = scrim.querySelector('#tsRmD2').value; }
+      const ok = scrim.querySelector('#tsRmOk'); ok.disabled = true; ok.textContent = 'Processing…';
+      API.post(action, body)
+        .then(() => { close(); this.toast('Done'); this.openDetail(this._id); })
+        .catch(ex => { ok.disabled = false; ok.textContent = 'Confirm'; scrim.querySelector('#tsRmErr').innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'Failed')}</div>`; });
+    });
+  },
+
+  /** Organiser nominates departments. */
+  deptModal() {
+    const s = this.detail.session;
+    const already = {}; (this.detail.depts || []).forEach(o => already[String(o.DepartmentID)] = 1);
+    const pool = Object.keys(Training.deptMap).filter(id => !already[id]).sort();
+    const scrim = document.createElement('div'); scrim.className = 'dc-scrim';
+    scrim.innerHTML = `<div class="dc-modal" style="max-width:520px;max-height:85vh;overflow:auto">
+      <h3 style="margin:0 0 4px">เรียกฝ่ายเข้าอบรม</h3>
+      <p class="dc-muted" style="margin:0 0 12px;font-size:12.5px">${trnEsc(s.Subject)} · ${trnEsc(s.SessionNo)}</p>
+      ${pool.length ? `<div style="display:grid;gap:6px">${pool.map(id => `<label style="display:flex;gap:8px;align-items:center;font-size:13px">
+          <input type="checkbox" class="tsD" value="${trnEsc(id)}"> <span style="flex:1">${trnEsc(Training.deptName(id))}</span>
+          <input type="number" min="0" step="1" class="dc-in tsDQ" data-d="${trnEsc(id)}" placeholder="quota" style="width:82px"></label>`).join('')}</div>`
+        : '<p class="dc-faint" style="color:#9ca3af">ทุกฝ่ายถูกเรียกไปแล้ว</p>'}
+      <div id="tsDErr"></div>
+      <div class="dc-bar"><button class="dc-btn dc-ghost" id="tsDX" type="button">Cancel</button><button class="dc-btn dc-primary" id="tsDOk" type="button">Add</button></div></div>`;
+    document.body.appendChild(scrim);
+    const close = () => scrim.remove();
+    scrim.querySelector('#tsDX').addEventListener('click', close);
+    scrim.querySelector('#tsDOk').addEventListener('click', () => {
+      const picked = Array.prototype.map.call(scrim.querySelectorAll('.tsD:checked'), x => x.value);
+      if (!picked.length) { scrim.querySelector('#tsDErr').innerHTML = '<div class="dc-err">กรุณาเลือกอย่างน้อย 1 ฝ่าย</div>'; return; }
+      const quotas = {};
+      scrim.querySelectorAll('.tsDQ').forEach(i => { if (picked.indexOf(i.dataset.d) !== -1 && i.value !== '') quotas[i.dataset.d] = Number(i.value); });
+      const ok = scrim.querySelector('#tsDOk'); ok.disabled = true; ok.textContent = 'Processing…';
+      API.post('addSessionDepts', { token: this.token(), sessionId: s.SessionID, depts: picked, quotas: quotas })
+        .then(() => { close(); this.toast('เรียกฝ่ายแล้ว'); this.openDetail(this._id); })
+        .catch(ex => { ok.disabled = false; ok.textContent = 'Add'; scrim.querySelector('#tsDErr').innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'Failed')}</div>`; });
+    });
+  },
+
+  /** A department picks its own employees. */
+  async assignModal(dept) {
+    const s = this.detail.session;
+    let r;
+    try { r = await API.get('getSessionEmployees', { token: this.token(), sessionId: s.SessionID, dept: dept }); }
+    catch (e) { this.toast(e.message || 'Failed'); return; }
+    const list = r.employees || [];
+    const scrim = document.createElement('div'); scrim.className = 'dc-scrim';
+    scrim.innerHTML = `<div class="dc-modal" style="max-width:520px;max-height:85vh;overflow:auto">
+      <h3 style="margin:0 0 4px">เพิ่มรายชื่อ — ${trnEsc(Training.deptName(dept))}</h3>
+      <p class="dc-muted" style="margin:0 0 12px;font-size:12.5px">${trnEsc(s.Subject)} · ${trnEsc(s.SessionNo)}</p>
+      ${list.length ? `<div style="display:grid;gap:5px">${list.map(e => `<label style="display:flex;gap:8px;align-items:center;font-size:13px">
+          <input type="checkbox" class="tsE" value="${trnEsc(e.employeeId)}">
+          <span class="dc-id">${trnEsc(e.employeeId)}</span><span style="flex:1">${trnEsc(e.name)}</span>
+          <span class="dc-faint" style="font-size:11.5px">${trnEsc(e.position)}</span></label>`).join('')}</div>`
+        : '<p class="dc-faint" style="color:#9ca3af">ไม่มีพนักงานที่ยังไม่ถูกเพิ่มในฝ่ายนี้</p>'}
+      <div id="tsEErr"></div>
+      <div class="dc-bar"><button class="dc-btn dc-ghost" id="tsEX" type="button">Cancel</button><button class="dc-btn dc-primary" id="tsEOk" type="button">Add selected</button></div></div>`;
+    document.body.appendChild(scrim);
+    const close = () => scrim.remove();
+    scrim.querySelector('#tsEX').addEventListener('click', close);
+    scrim.querySelector('#tsEOk').addEventListener('click', () => {
+      const picked = Array.prototype.map.call(scrim.querySelectorAll('.tsE:checked'), x => x.value);
+      if (!picked.length) { scrim.querySelector('#tsEErr').innerHTML = '<div class="dc-err">กรุณาเลือกอย่างน้อย 1 คน</div>'; return; }
+      const ok = scrim.querySelector('#tsEOk'); ok.disabled = true; ok.textContent = 'Processing…';
+      API.post('addSessionAttendees', { token: this.token(), sessionId: s.SessionID, dept: dept, employees: picked })
+        .then(() => { close(); this.toast('เพิ่มรายชื่อแล้ว'); this.openDetail(this._id); })
+        .catch(ex => { ok.disabled = false; ok.textContent = 'Add selected'; scrim.querySelector('#tsEErr').innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'Failed')}</div>`; });
+    });
+  },
+
+  /* ------------------------------ printed forms ------------------------------ */
+
+  async ensureLogo() {
+    if (TrainingSession._logo !== undefined) return TrainingSession._logo;
+    try { const r = await API.get('getTrainingSessionLogo', { token: this.token() }); TrainingSession._logo = r.logo || ''; }
+    catch (e) { TrainingSession._logo = ''; }
+    return TrainingSession._logo;
+  },
+
+  /** Shared form head: logo, company, title and the blank form's own doc identity. */
+  formHead(logo, titleTh, titleEn, formNo) {
+    const logoCell = logo ? `<img src="${logo}" alt="SOM" style="height:38px;width:auto">` : '<b style="font-size:15px">SOM</b>';
+    return `<table class="fh"><tr>
+      <td style="width:190px">${logoCell}<div style="font-size:9px;font-weight:700;margin-top:2px">SUMMIT OTSUKA MANUFACTURING CO.,LTD.</div></td>
+      <td style="text-align:center"><div style="font-size:14px;font-weight:700">${trnEsc(titleTh)}</div>
+        <div style="font-size:10px;letter-spacing:.4px">${trnEsc(titleEn)}</div></td>
+      <td style="width:180px;text-align:right;font-size:9.5px;white-space:pre-line">${trnEsc(formNo)}</td>
+    </tr></table>`;
+  },
+
+  kvTable(pairs) {
+    return `<table class="kv">${pairs.map(p => `<tr><td class="k">${trnEsc(p[0])}</td><td>${trnEsc(p[1])}</td></tr>`).join('')}</table>`;
+  },
+
+  signBox(cols) {
+    return `<table class="sg"><tr>${cols.map(c => `<th>${trnEsc(c[0])}</th>`).join('')}</tr>
+      <tr>${cols.map(() => '<td class="sp"></td>').join('')}</tr>
+      <tr>${cols.map(c => `<td class="nm">(${trnEsc(c[1] || '')})</td>`).join('')}</tr>
+      <tr>${cols.map(c => `<td class="dt">วันที่ ${trnEsc(c[2] || '')}</td>`).join('')}</tr></table>`;
+  },
+
+  printStyle() {
+    return `<style>
+      .fm{font-size:11px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      .fm table{border-collapse:collapse;width:100%}
+      .fm .fh td{border:1px solid #000;padding:4px 6px;vertical-align:middle}
+      .fm .kv{margin-top:6px}.fm .kv td{border:1px solid #000;padding:3px 6px}
+      .fm .kv td.k{width:120px;background:#f4f3f0;font-size:10px}
+      .fm .lst{margin-top:8px}.fm .lst th,.fm .lst td{border:1px solid #000;padding:3px 5px}
+      .fm .lst th{background:#f0efec;font-size:10px;text-align:center}
+      .fm .lst td.c{text-align:center}.fm .lst td.s{height:20px}
+      .fm .note{margin-top:8px;border:1px solid #000;padding:5px 6px;font-size:10px;line-height:1.6}
+      .fm .sg{margin-top:14px}.fm .sg th,.fm .sg td{border:1px solid #000;padding:3px 6px;text-align:center;font-size:10px}
+      .fm .sg th{background:#f0efec}.fm .sg td.sp{height:46px}.fm .sg td.nm{font-size:9.5px}.fm .sg td.dt{font-size:9.5px}
+      .fm .pg{page-break-after:always;break-after:page}.fm .pg:last-child{page-break-after:auto;break-after:auto}
+      tr,img{break-inside:avoid;page-break-inside:avoid}
+    </style>`;
+  },
+
+  /** FM-HR-06 — internal training assignment, ONE PAGE PER DEPARTMENT. */
+  async printAssign(onlyDept) {
+    const d = this.detail, s = d.session;
+    const depts = (d.depts || []).filter(o => String(o.Status).toUpperCase() === 'CONFIRMED' && (!onlyDept || String(o.DepartmentID) === String(onlyDept)));
+    if (!depts.length) { this.toast('ยังไม่มีฝ่ายที่ยืนยันรายชื่อ'); return; }
+    const logo = await this.ensureLogo();
+    const formNo = (d.formNos && d.formNos.assign) || 'FM-HR-06';
+    const pages = depts.map(dep => {
+      const rows = (d.attendees || []).filter(a => String(a.DepartmentID) === String(dep.DepartmentID));
+      const body = rows.map((a, i) => `<tr><td class="c">${i + 1}</td><td class="c">${trnEsc(a.EmployeeID)}</td>
+        <td>${trnEsc(a.EmployeeName)}</td><td>${trnEsc(a.Position)}</td><td class="s"></td></tr>`).join('')
+        + Array.from({ length: Math.max(0, 12 - rows.length) }).map((_, i) => `<tr><td class="c">${rows.length + i + 1}</td><td></td><td></td><td></td><td class="s"></td></tr>`).join('');
+      return `<div class="pg">
+        ${this.formHead(logo, 'ใบส่งพนักงานเข้ารับการฝึกอบรม', 'TRAINING ASSIGNMENT', formNo)}
+        ${this.kvTable([
+        ['ฝ่าย / แผนก', Training.deptName(dep.DepartmentID)],
+        ['หลักสูตร', s.Subject + (s.CourseCode ? '  (' + s.CourseCode + ')' : '')],
+        ['ประเภทการอบรม', tpTypeLabel(s.TrainingType)],
+        ['วันที่อบรม', tsRange(s.StartDate, s.EndDate)],
+        ['เวลา', (s.TimeText || '') + (s.Hours ? '   รวม ' + s.Hours + ' ชั่วโมง' : '')],
+        ['สถานที่', s.Venue || ''],
+        ['วิทยากร', s.Trainer || (s.Provider || '')],
+        ['เลขที่รุ่นอบรม', s.SessionNo]
+      ])}
+        <table class="lst"><thead><tr><th style="width:34px">ลำดับ</th><th style="width:88px">รหัสพนักงาน</th><th>ชื่อ - นามสกุล</th><th style="width:140px">ตำแหน่ง</th><th style="width:150px">ลายมือชื่อ</th></tr></thead>
+          <tbody>${body}</tbody></table>
+        <div class="note"><b>เกณฑ์การประเมินผลการฝึกอบรม:</b> ${trnEsc(tsCriteriaText(s))}</div>
+        ${this.signBox([
+        ['ผู้จัดทำ', s.CreatedByName, trnDate(s.CreatedDate)],
+        ['อนุมัติ (ผู้จัดการฝ่าย)', dep.ConfirmedByName, dep.ConfirmedDate ? trnDate(dep.ConfirmedDate) : ''],
+        ['รับทราบ (ฝ่ายบุคคล)', '', '']
+      ])}
+      </div>`;
+    }).join('');
+    trnPrint(formNo.split(/\s+/)[0] + ' · ' + s.SessionNo, 'size: A4 portrait; margin: 10mm;', `<div class="fm">${pages}</div>${this.printStyle()}`);
+  },
+
+  /** FM-HR-02 — external training request, one page for the whole session. */
+  async printExtReq() {
+    const d = this.detail, s = d.session;
+    const att = d.attendees || [];
+    if (!att.length) { this.toast('ยังไม่มีรายชื่อ'); return; }
+    const logo = await this.ensureLogo();
+    const formNo = (d.formNos && d.formNos.extReq) || 'FM-HR-02';
+    const rows = att.map((a, i) => `<tr><td class="c">${i + 1}</td><td class="c">${trnEsc(a.EmployeeID)}</td>
+      <td>${trnEsc(a.EmployeeName)}</td><td>${trnEsc(a.Position)}</td><td>${trnEsc(Training.deptName(a.DepartmentID))}</td></tr>`).join('')
+      + Array.from({ length: Math.max(0, 10 - att.length) }).map((_, i) => `<tr><td class="c">${att.length + i + 1}</td><td></td><td></td><td></td><td></td></tr>`).join('');
+    const body = `<div class="pg">
+      ${this.formHead(logo, 'ขออนุมัติส่งพนักงานเข้ารับการฝึกอบรมภายนอก', 'EXTERNAL TRAINING REQUEST', formNo)}
+      ${this.kvTable([
+      ['หลักสูตร', s.Subject + (s.CourseCode ? '  (' + s.CourseCode + ')' : '')],
+      ['สถาบันผู้จัด', s.Provider || ''],
+      ['วันที่อบรม', tsRange(s.StartDate, s.EndDate)],
+      ['เวลา', (s.TimeText || '') + (s.Hours ? '   รวม ' + s.Hours + ' ชั่วโมง' : '')],
+      ['สถานที่', s.Venue || ''],
+      ['วิทยากร', s.Trainer || ''],
+      ['ค่าลงทะเบียน', (tsMoney(s.Cost) || '-') + ' บาท' + (s.Budget ? '   (งบตามแผน ' + tsMoney(s.Budget) + ' บาท)' : '')],
+      ['เลขที่รุ่นอบรม', s.SessionNo]
+    ])}
+      <div class="note"><b>วัตถุประสงค์ / ประโยชน์ที่คาดว่าจะได้รับ:</b><br>${trnEsc(s.Objective || '')}</div>
+      <table class="lst"><thead><tr><th style="width:34px">ลำดับ</th><th style="width:88px">รหัสพนักงาน</th><th>ชื่อ - นามสกุล</th><th style="width:130px">ตำแหน่ง</th><th style="width:150px">ฝ่าย / แผนก</th></tr></thead>
+        <tbody>${rows}</tbody></table>
+      <div class="note"><b>เกณฑ์การประเมินผลการฝึกอบรม:</b> ${trnEsc(tsCriteriaText(s))}</div>
+      ${this.signBox([
+      ['ผู้ขออนุมัติ', s.CreatedByName, trnDate(s.CreatedDate)],
+      ['ผู้จัดการฝ่าย', '', ''],
+      ['ผู้อนุมัติ', '', '']
+    ])}
+    </div>`;
+    trnPrint(formNo.split(/\s+/)[0] + ' · ' + s.SessionNo, 'size: A4 portrait; margin: 10mm;', `<div class="fm">${body}</div>${this.printStyle()}`);
+  },
+
+  /** FM-HR-07 — registration / sign-in sheet, every type. */
+  async printRegister() {
+    const d = this.detail, s = d.session;
+    const att = d.attendees || [];
+    if (!att.length) { this.toast('ยังไม่มีรายชื่อ'); return; }
+    const logo = await this.ensureLogo();
+    const formNo = (d.formNos && d.formNos.register) || 'FM-HR-07';
+    const rows = att.map((a, i) => `<tr><td class="c">${i + 1}</td><td class="c">${trnEsc(a.EmployeeID)}</td>
+      <td>${trnEsc(a.EmployeeName)}</td><td>${trnEsc(Training.deptName(a.DepartmentID))}</td>
+      <td>${trnEsc(a.Position)}</td><td class="s"></td><td class="s"></td><td></td></tr>`).join('')
+      + Array.from({ length: Math.max(0, 15 - att.length) }).map((_, i) => `<tr><td class="c">${att.length + i + 1}</td><td></td><td></td><td></td><td></td><td class="s"></td><td class="s"></td><td></td></tr>`).join('');
+    const body = `<div class="pg">
+      ${this.formHead(logo, 'ใบลงทะเบียนเข้ารับการฝึกอบรม', 'TRAINING REGISTRATION', formNo)}
+      ${this.kvTable([
+      ['หลักสูตร', s.Subject + (s.CourseCode ? '  (' + s.CourseCode + ')' : '')],
+      ['ประเภทการอบรม', tpTypeLabel(s.TrainingType) + '     เลขที่รุ่น ' + s.SessionNo],
+      ['วันที่อบรม', tsRange(s.StartDate, s.EndDate) + '     ' + (s.TimeText || '') + (s.Hours ? '     รวม ' + s.Hours + ' ชั่วโมง' : '')],
+      ['สถานที่', s.Venue || ''],
+      ['วิทยากร / สถาบัน', s.Trainer || s.Provider || '']
+    ])}
+      <table class="lst"><thead><tr><th style="width:30px">ลำดับ</th><th style="width:78px">รหัส</th><th>ชื่อ - นามสกุล</th>
+        <th style="width:110px">ฝ่าย</th><th style="width:100px">ตำแหน่ง</th><th style="width:110px">ลายมือชื่อ (เข้า)</th>
+        <th style="width:110px">ลายมือชื่อ (ออก)</th><th style="width:60px">หมายเหตุ</th></tr></thead>
+        <tbody>${rows}</tbody></table>
+      <div class="note"><b>วิธีการประเมินผล:</b> ${trnEsc(tsMethodsText(s.AssessMethods))}<br>
+        <b>เกณฑ์ผ่าน:</b> ${trnEsc(tsCriteriaText(s))}</div>
+      ${this.signBox([['วิทยากร', s.Trainer || '', ''], ['ผู้จัดการฝึกอบรม', s.CreatedByName, trnDate(s.CreatedDate)]])}
+    </div>`;
+    trnPrint(formNo.split(/\s+/)[0] + ' · ' + s.SessionNo, 'size: A4 portrait; margin: 10mm;', `<div class="fm">${body}</div>${this.printStyle()}`);
+  }
+};
+
+function loadTrainingSessions() { TrainingSession._logo = undefined; TrainingSession._id = ''; TrainingSession.load(); }

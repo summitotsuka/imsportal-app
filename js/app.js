@@ -456,6 +456,12 @@ function navigateTo(page) {
 
       break;
 
+    case 'training-sessions':
+
+      loadTrainingSessions();
+
+      break;
+
 
     default:
 
