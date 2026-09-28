@@ -1298,7 +1298,7 @@ const TrainingSession = {
     const c = document.getElementById('pageContent');
     c.innerHTML = `<div class="dc-wrap"><p class="dc-muted" style="padding:8px">Loading plan items…</p></div>`;
     let r;
-    try { r = await API.get('getSessionPlanItems', { token: this.token(), year: this._year }); }
+    try { r = await API.get('getTrainingSessionPlanItems', { token: this.token(), year: this._year }); }
     catch (e) { this.toast(e.message || 'Failed'); this.load(); return; }
     const items = r.items || [];
     this._items = items;
@@ -1520,10 +1520,10 @@ const TrainingSession = {
     document.getElementById('tsBack').addEventListener('click', () => this.load());
     c.querySelectorAll('[data-a]').forEach(b => b.addEventListener('click', ev => this.onAction(b.dataset.a, ev.currentTarget)));
     c.querySelectorAll('[data-assign]').forEach(b => b.addEventListener('click', () => this.assignModal(b.dataset.assign)));
-    c.querySelectorAll('[data-confirm]').forEach(b => b.addEventListener('click', ev => this.run('confirmSessionDept', { sessionId: s.SessionID, dept: b.dataset.confirm }, 'ยืนยันรายชื่อแล้ว', ev.currentTarget)));
-    c.querySelectorAll('[data-unconfirm]').forEach(b => b.addEventListener('click', ev => this.run('unconfirmSessionDept', { sessionId: s.SessionID, dept: b.dataset.unconfirm }, 'เปิดรายชื่อให้แก้ไขแล้ว', ev.currentTarget)));
-    c.querySelectorAll('[data-rmdept]').forEach(b => b.addEventListener('click', ev => this.run('removeSessionDept', { sessionId: s.SessionID, dept: b.dataset.rmdept }, 'ลบฝ่ายแล้ว', ev.currentTarget)));
-    c.querySelectorAll('[data-rmatt]').forEach(b => b.addEventListener('click', ev => this.run('removeSessionAttendee', { attendeeId: b.dataset.rmatt }, 'ลบรายชื่อแล้ว', ev.currentTarget)));
+    c.querySelectorAll('[data-confirm]').forEach(b => b.addEventListener('click', ev => this.run('confirmTrainingSessionDept', { sessionId: s.SessionID, dept: b.dataset.confirm }, 'ยืนยันรายชื่อแล้ว', ev.currentTarget)));
+    c.querySelectorAll('[data-unconfirm]').forEach(b => b.addEventListener('click', ev => this.run('unconfirmTrainingSessionDept', { sessionId: s.SessionID, dept: b.dataset.unconfirm }, 'เปิดรายชื่อให้แก้ไขแล้ว', ev.currentTarget)));
+    c.querySelectorAll('[data-rmdept]').forEach(b => b.addEventListener('click', ev => this.run('removeTrainingSessionDept', { sessionId: s.SessionID, dept: b.dataset.rmdept }, 'ลบฝ่ายแล้ว', ev.currentTarget)));
+    c.querySelectorAll('[data-rmatt]').forEach(b => b.addEventListener('click', ev => this.run('removeTrainingSessionAttendee', { attendeeId: b.dataset.rmatt }, 'ลบรายชื่อแล้ว', ev.currentTarget)));
     c.querySelectorAll('[data-print6]').forEach(b => b.addEventListener('click', () => this.printAssign(b.dataset.print6)));
   },
 
@@ -1532,8 +1532,8 @@ const TrainingSession = {
     if (a === 'edit') return this.sessionForm(s);
     if (a === 'depts') return this.deptModal();
     if (a === 'open') return this.run('openTrainingSession', { sessionId: id }, 'เปิดรับสมัครแล้ว', bt);
-    if (a === 'close') return this.run('closeSessionRegistration', { sessionId: id }, 'ปิดรับสมัครแล้ว', bt);
-    if (a === 'reopen') return this.reasonModal('Reopen registration', 'reopenSessionRegistration', { sessionId: id }, false);
+    if (a === 'close') return this.run('closeTrainingSessionRegistration', { sessionId: id }, 'ปิดรับสมัครแล้ว', bt);
+    if (a === 'reopen') return this.reasonModal('Reopen registration', 'reopenTrainingSessionRegistration', { sessionId: id }, false);
     if (a === 'postpone') return this.reasonModal('Postpone this session', 'postponeTrainingSession', { sessionId: id }, true);
     if (a === 'cancel') return this.reasonModal('Cancel this session', 'cancelTrainingSession', { sessionId: id }, false);
     if (a === 'printAssign') return this.printAssign('');
@@ -1600,7 +1600,7 @@ const TrainingSession = {
       const quotas = {};
       scrim.querySelectorAll('.tsDQ').forEach(i => { if (picked.indexOf(i.dataset.d) !== -1 && i.value !== '') quotas[i.dataset.d] = Number(i.value); });
       const ok = scrim.querySelector('#tsDOk'); ok.disabled = true; ok.textContent = 'Processing…';
-      API.post('addSessionDepts', { token: this.token(), sessionId: s.SessionID, depts: picked, quotas: quotas })
+      API.post('addTrainingSessionDepts', { token: this.token(), sessionId: s.SessionID, depts: picked, quotas: quotas })
         .then(() => { close(); this.toast('เรียกฝ่ายแล้ว'); this.openDetail(this._id); })
         .catch(ex => { ok.disabled = false; ok.textContent = 'Add'; scrim.querySelector('#tsDErr').innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'Failed')}</div>`; });
     });
@@ -1610,7 +1610,7 @@ const TrainingSession = {
   async assignModal(dept) {
     const s = this.detail.session;
     let r;
-    try { r = await API.get('getSessionEmployees', { token: this.token(), sessionId: s.SessionID, dept: dept }); }
+    try { r = await API.get('getTrainingSessionEmployees', { token: this.token(), sessionId: s.SessionID, dept: dept }); }
     catch (e) { this.toast(e.message || 'Failed'); return; }
     const list = r.employees || [];
     const scrim = document.createElement('div'); scrim.className = 'dc-scrim';
@@ -1631,7 +1631,7 @@ const TrainingSession = {
       const picked = Array.prototype.map.call(scrim.querySelectorAll('.tsE:checked'), x => x.value);
       if (!picked.length) { scrim.querySelector('#tsEErr').innerHTML = '<div class="dc-err">กรุณาเลือกอย่างน้อย 1 คน</div>'; return; }
       const ok = scrim.querySelector('#tsEOk'); ok.disabled = true; ok.textContent = 'Processing…';
-      API.post('addSessionAttendees', { token: this.token(), sessionId: s.SessionID, dept: dept, employees: picked })
+      API.post('addTrainingSessionAttendees', { token: this.token(), sessionId: s.SessionID, dept: dept, employees: picked })
         .then(() => { close(); this.toast('เพิ่มรายชื่อแล้ว'); this.openDetail(this._id); })
         .catch(ex => { ok.disabled = false; ok.textContent = 'Add selected'; scrim.querySelector('#tsEErr').innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'Failed')}</div>`; });
     });
