@@ -1176,10 +1176,23 @@ function loadOjtPlan() { TrainingPlan._logo = undefined; TrainingPlan._type = 'O
      every type → FM-HR-07 registration sheet once the list is closed.                            */
 
 const TS_STATUS = {
-  DRAFT: ['Draft', 'dc-b-off'], OPEN: ['Open for Registration', 'dc-b-info'],
+  DRAFT: ['Draft', 'dc-b-off'],
+  PENDING_MGR: ['Waiting for Dept Manager', 'dc-b-info'],
+  PENDING_HR: ['Waiting for HR Manager', 'dc-b-info'],
+  PENDING_QMS: ['Waiting for QMS Manager', 'dc-b-warn'],
+  OPEN: ['Open for Registration', 'dc-b-info'],
   CONFIRMED: ['Confirmed', 'dc-b-ok'], DONE: ['Trained', 'dc-b-ok'], CLOSED: ['Closed', 'dc-b-ok'],
   POSTPONED: ['Postponed', 'dc-b-warn'], CANCELLED: ['Cancelled', 'dc-b-cancel']
 };
+/** The approval stage a session is sitting in, in the words the buttons use. */
+function tsStageLabel(st) {
+  const k = String(st || '').toUpperCase();
+  if (k === 'PENDING_MGR') return 'ผู้จัดการฝ่าย';
+  if (k === 'PENDING_HR') return 'ผู้จัดการฝ่ายบุคคล';
+  if (k === 'PENDING_QMS') return 'QMS Manager';
+  return k;
+}
+function tsIsPending(st) { return ['PENDING_MGR', 'PENDING_HR', 'PENDING_QMS'].indexOf(String(st || '').toUpperCase()) !== -1; }
 const TS_METHODS = [['ATTENDANCE', 'Attendance (เวลาเข้าอบรม)'], ['TEST', 'Test (แบบทดสอบ)'], ['PRACTICAL', 'Practical (ลงมือปฏิบัติ)']];
 const TS_LEVEL_MARKS = ['◔', '◑', '◕', '●'];
 const TS_LEVEL_TH = ['สามารถทำได้ภายใต้คำแนะนำ', 'สามารถทำได้และอธิบายขั้นตอนหลักได้', 'สามารถทำได้และอธิบายจุดสำคัญได้', 'สามารถทำได้และอธิบายเหตุผลการปฏิบัติได้'];
@@ -1440,6 +1453,15 @@ const TrainingSession = {
       ['เอกสารขอฝึกอบรม', d.requestDoc || 'ไม่ต้องพิมพ์']
     ].map(r => `<tr><td class="k">${trnEsc(r[0])}</td><td>${trnEsc(r[1])}</td></tr>`).join('');
 
+    const trail = [
+      ['ผู้ขอ / ผู้จัด', s.SubmittedByName, s.SubmittedDate],
+      ['ผู้จัดการฝ่าย', s.MgrApprovedByName, s.MgrApprovedDate],
+      ['ผู้จัดการฝ่ายบุคคล', s.HrApprovedByName, s.HrApprovedDate],
+      ['QMS Manager', s.QmsApprovedByName, s.QmsApprovedDate],
+      ['ปิดรับสมัคร', s.RegClosedByName, s.RegClosedDate],
+      ['ปิดรุ่นอบรม', s.ClosedByName, s.ClosedDate]
+    ].filter(r => trnEsc(r[1] || '')).map(r => `<tr><td class="k">${trnEsc(r[0])}</td><td>${trnEsc(r[1])} <span class="dc-faint" style="font-size:11.5px">${trnEsc(trnDate(r[2]))}</span></td></tr>`).join('');
+
     const deptRows = depts.map(o => {
       const btns = [];
       if (String(s.Status).toUpperCase() === 'OPEN' && o.mine) {
@@ -1480,9 +1502,14 @@ const TrainingSession = {
     const bar = [];
     if (has('edit')) bar.push('<button class="dc-btn dc-ghost" data-a="edit" type="button">Edit</button>');
     if (has('depts')) bar.push('<button class="dc-btn dc-ghost" data-a="depts" type="button">+ Departments</button>');
+    if (has('submit')) bar.push('<button class="dc-btn dc-primary" data-a="submit" type="button">Submit for approval</button>');
+    if (has('approve')) bar.push(`<button class="dc-btn dc-primary" data-a="approve" type="button">Approve (${trnEsc(tsStageLabel(s.Status))})</button>`);
+    if (has('approveReject')) bar.push('<button class="dc-btn dc-ghost" data-a="approveReject" type="button">Reject</button>');
     if (has('open')) bar.push('<button class="dc-btn dc-primary" data-a="open" type="button">Open registration</button>');
-    if (has('close')) bar.push('<button class="dc-btn dc-primary" data-a="close" type="button">Close registration</button>');
-    if (has('reopen')) bar.push('<button class="dc-btn dc-ghost" data-a="reopen" type="button">Reopen registration</button>');
+    if (has('closeReg')) bar.push('<button class="dc-btn dc-primary" data-a="closeReg" type="button">Close registration</button>');
+    if (has('reopenReg')) bar.push('<button class="dc-btn dc-ghost" data-a="reopenReg" type="button">Reopen registration</button>');
+    if (has('close')) bar.push('<button class="dc-btn dc-primary" data-a="close" type="button">Close session (HR Manager)</button>');
+    if (has('reopenClosed')) bar.push('<button class="dc-btn dc-ghost" data-a="reopenClosed" type="button">Reopen closed session</button>');
     if (has('printExtReq')) bar.push('<button class="dc-btn dc-ghost" data-a="printExtReq" type="button">Print FM-HR-02</button>');
     if (has('printAssign')) bar.push('<button class="dc-btn dc-ghost" data-a="printAssign" type="button">Print FM-HR-06 (all depts)</button>');
     if (has('printRegister')) bar.push('<button class="dc-btn dc-ghost" data-a="printRegister" type="button">Print FM-HR-07</button>');
@@ -1502,7 +1529,9 @@ const TrainingSession = {
       </div></div>
       <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:12px;align-items:start">
         <div class="dc-card"><h3 style="margin:0 0 10px;font-size:15px">รายละเอียดรุ่นอบรม</h3>
-          <table class="dc-tbl ts-kv"><tbody>${info}</tbody></table></div>
+          <table class="dc-tbl ts-kv"><tbody>${info}</tbody></table>
+          ${trail ? `<h3 style="margin:14px 0 8px;font-size:15px">การอนุมัติ</h3><table class="dc-tbl ts-kv"><tbody>${trail}</tbody></table>` : ''}
+          ${s.DecisionReason ? `<div class="dc-err" style="margin-top:10px">เหตุผลที่ส่งกลับ: ${trnEsc(s.DecisionReason)}</div>` : ''}</div>
         <div class="dc-card"><h3 style="margin:0 0 10px;font-size:15px">ฝ่ายที่เข้าอบรม <span class="dc-faint" style="font-weight:400;font-size:12px">(ทุกฝ่ายต้องยืนยันก่อนปิดรับ)</span></h3>
           ${depts.length ? `<table class="dc-tbl"><thead><tr><th>ฝ่าย</th><th>คน</th><th>สถานะ</th><th>ยืนยันโดย</th><th></th></tr></thead><tbody>${deptRows}</tbody></table>`
         : '<p class="dc-faint" style="padding:6px;color:#9ca3af">ยังไม่มีฝ่ายถูกเรียกเข้าอบรม</p>'}</div>
@@ -1531,9 +1560,14 @@ const TrainingSession = {
     const s = this.detail.session, id = s.SessionID;
     if (a === 'edit') return this.sessionForm(s);
     if (a === 'depts') return this.deptModal();
+    if (a === 'submit') return this.run('submitTrainingSession', { sessionId: id }, 'ส่งขออนุมัติแล้ว', bt);
+    if (a === 'approve') return this.run('approveTrainingSession', { sessionId: id, decision: 'APPROVE' }, 'อนุมัติแล้ว', bt);
+    if (a === 'approveReject') return this.reasonModal('Reject — ส่งกลับให้แก้ไข', 'approveTrainingSession', { sessionId: id, decision: 'REJECT' }, false);
     if (a === 'open') return this.run('openTrainingSession', { sessionId: id }, 'เปิดรับสมัครแล้ว', bt);
-    if (a === 'close') return this.run('closeTrainingSessionRegistration', { sessionId: id }, 'ปิดรับสมัครแล้ว', bt);
-    if (a === 'reopen') return this.reasonModal('Reopen registration', 'reopenTrainingSessionRegistration', { sessionId: id }, false);
+    if (a === 'closeReg') return this.run('closeTrainingSessionRegistration', { sessionId: id }, 'ปิดรับสมัครแล้ว', bt);
+    if (a === 'reopenReg') return this.reasonModal('Reopen registration', 'reopenTrainingSessionRegistration', { sessionId: id }, false);
+    if (a === 'close') return this.run('closeTrainingSession', { sessionId: id }, 'ปิดรุ่นอบรมแล้ว', bt);
+    if (a === 'reopenClosed') return this.reasonModal('Reopen closed session', 'reopenTrainingSession', { sessionId: id }, false);
     if (a === 'postpone') return this.reasonModal('Postpone this session', 'postponeTrainingSession', { sessionId: id }, true);
     if (a === 'cancel') return this.reasonModal('Cancel this session', 'cancelTrainingSession', { sessionId: id }, false);
     if (a === 'printAssign') return this.printAssign('');
@@ -1714,9 +1748,9 @@ const TrainingSession = {
           <tbody>${body}</tbody></table>
         <div class="note"><b>เกณฑ์การประเมินผลการฝึกอบรม:</b> ${trnEsc(tsCriteriaText(s))}</div>
         ${this.signBox([
-        ['ผู้จัดทำ', s.CreatedByName, trnDate(s.CreatedDate)],
-        ['อนุมัติ (ผู้จัดการฝ่าย)', dep.ConfirmedByName, dep.ConfirmedDate ? trnDate(dep.ConfirmedDate) : ''],
-        ['รับทราบ (ฝ่ายบุคคล)', '', '']
+        ['ผู้จัดทำ', s.SubmittedByName || s.CreatedByName, trnDate(s.SubmittedDate || s.CreatedDate)],
+        ['ยืนยันรายชื่อ (ผู้จัดการฝ่าย)', dep.ConfirmedByName, dep.ConfirmedDate ? trnDate(dep.ConfirmedDate) : ''],
+        ['อนุมัติ', s.MgrApprovedByName || s.HrApprovedByName, trnDate(s.MgrApprovedDate || s.HrApprovedDate)]
       ])}
       </div>`;
     }).join('');
@@ -1750,9 +1784,9 @@ const TrainingSession = {
         <tbody>${rows}</tbody></table>
       <div class="note"><b>เกณฑ์การประเมินผลการฝึกอบรม:</b> ${trnEsc(tsCriteriaText(s))}</div>
       ${this.signBox([
-      ['ผู้ขออนุมัติ', s.CreatedByName, trnDate(s.CreatedDate)],
-      ['ผู้จัดการฝ่าย', '', ''],
-      ['ผู้อนุมัติ', '', '']
+      ['ผู้ขออนุมัติ', s.SubmittedByName || s.CreatedByName, trnDate(s.SubmittedDate || s.CreatedDate)],
+      ['ผู้จัดการฝ่ายบุคคล', s.HrApprovedByName, trnDate(s.HrApprovedDate)],
+      ['ผู้อนุมัติ (QMS Manager)', s.QmsApprovedByName, trnDate(s.QmsApprovedDate)]
     ])}
     </div>`;
     trnPrint(formNo.split(/\s+/)[0] + ' · ' + s.SessionNo, 'size: A4 portrait; margin: 10mm;', `<div class="fm">${body}</div>${this.printStyle()}`);
