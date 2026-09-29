@@ -1329,7 +1329,16 @@ const TrainingSession = {
         <h1 style="margin:0 0 4px;font-size:20px">New Session — เลือกรายการจากแผน</h1>
         <p class="dc-muted" style="margin:0 0 14px">ทุกรุ่นอบรมต้องมาจากรายการในแผนที่อนุมัติแล้ว (ปี ${trnEsc(String(this._year))}) · 1 รายการเปิดได้หลายรุ่น</p>
         ${items.length ? `<table class="dc-tbl"><thead><tr><th>หลักสูตร</th><th>ประเภท</th><th>ฝ่าย</th><th>ตามแผน</th><th>ครั้ง × ชม.</th><th>เป้าหมาย</th><th>จัดไปแล้ว</th></tr></thead><tbody>${rows}</tbody></table>`
-        : '<p class="dc-faint" style="padding:6px;color:#9ca3af">ยังไม่มีรายการในแผนที่อนุมัติแล้วสำหรับปีนี้ (หรือคุณไม่ใช่ผู้จัดของรายการเหล่านั้น)</p>'}
+        : `<div class="dc-faint" style="padding:6px;color:#6b7280;font-size:12.5px;line-height:1.9">
+            <b>ไม่มีรายการที่คุณเปิดรุ่นอบรมได้ในปี ${trnEsc(String(this._year))}</b> — ระบบใช้เงื่อนไขนี้:
+            <div style="margin-left:14px">
+              1. แผนของปีนั้นต้องอยู่สถานะ <b>Approved</b> แล้ว (DRAFT / Waiting for… ยังไม่นับ)<br>
+              2. รายการต้องยังไม่ถูก Void และอยู่ใน revision ที่อนุมัติล่าสุด<br>
+              3. คุณต้องเป็นผู้จัดของรายการนั้น — <b>ฝ่ายบุคคล</b> จัดได้ทุกรายการ ·
+                 <b>ผู้จัดการฝ่าย</b> จัดได้ทุกประเภทเฉพาะรายการของฝ่ายที่ตัวเองดูแล ·
+                 <b>พนักงานฝ่าย</b> จัดได้เฉพาะ OJT ของฝ่ายตัวเอง<br>
+              4. รายการที่ไม่ระบุฝ่าย (ทั้งบริษัท) เป็นของฝ่ายบุคคล
+            </div></div>`}
       </div></div><div class="dc-toast" id="dcToast"></div>`;
     document.getElementById('tsBack').addEventListener('click', () => this.load());
     c.querySelectorAll('[data-item]').forEach(tr => tr.addEventListener('click', () => {
