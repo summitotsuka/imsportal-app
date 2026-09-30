@@ -1499,13 +1499,15 @@ const TrainingSession = {
     let lastDept = null, n = 0;
     const attRows = att.map(a => {
       let head = '';
-      if (String(a.DepartmentID) !== lastDept) { lastDept = String(a.DepartmentID); head = `<tr><td colspan="6" style="background:#f3f4f6;font-weight:600">${trnEsc(Training.deptName(a.DepartmentID))}</td></tr>`; }
+      if (String(a.DepartmentID) !== lastDept) { lastDept = String(a.DepartmentID); head = `<tr><td colspan="7" style="background:#f3f4f6;font-weight:600">${trnEsc(Training.deptName(a.DepartmentID))}</td></tr>`; }
       const canRemove = openNow && deptStatus[String(a.DepartmentID)] !== 'CONFIRMED'
         && (d.isOrganiser || (d.myDepts || []).indexOf(String(a.DepartmentID)) !== -1);
       return head + `<tr><td class="dc-faint">${++n}</td><td><span class="dc-id">${trnEsc(a.EmployeeID)}</span></td>
         <td>${trnEsc(a.EmployeeName)}</td><td class="dc-faint">${trnEsc(a.Position)}</td>
         <td class="dc-faint">${trnEsc(a.AssignedByName)}</td>
-        <td>${canRemove ? `<button class="dc-btn dc-ghost dc-sm" data-rmatt="${trnEsc(a.AttendeeID)}" type="button">Remove</button>` : ''}</td></tr>`;
+        <td>${a.Result ? tsResultChip(a.Result, '') : '<span class="dc-faint">—</span>'}${a.Level ? ' ' + tsLevelIcon(a.Level, 14) : ''}</td>
+        <td>${canRemove ? `<button class="dc-btn dc-ghost dc-sm" data-rmatt="${trnEsc(a.AttendeeID)}" type="button">Remove</button>`
+          : (a.HistoryID ? `<button class="dc-btn dc-ghost dc-sm" data-card="${trnEsc(a.EmployeeID)}" type="button">FM-HR-09</button>` : '')}</td></tr>`;
     }).join('');
 
     const bar = [];
@@ -1517,6 +1519,11 @@ const TrainingSession = {
     if (has('open')) bar.push('<button class="dc-btn dc-primary" data-a="open" type="button">Open registration</button>');
     if (has('closeReg')) bar.push('<button class="dc-btn dc-primary" data-a="closeReg" type="button">Close registration</button>');
     if (has('reopenReg')) bar.push('<button class="dc-btn dc-ghost" data-a="reopenReg" type="button">Reopen registration</button>');
+    if (has('results')) bar.push('<button class="dc-btn dc-primary" data-a="results" type="button">บันทึกผลการอบรม</button>');
+    if (has('viewResults') && !has('results')) bar.push('<button class="dc-btn dc-ghost" data-a="results" type="button">ดูผลการอบรม</button>');
+    if (has('complete')) bar.push('<button class="dc-btn dc-ghost" data-a="complete" type="button">ปิดการกรอกผล (DONE)</button>');
+    if (has('reopenResults')) bar.push('<button class="dc-btn dc-ghost" data-a="reopenResults" type="button">แก้ไขผล</button>');
+    if (has('files')) bar.push('<button class="dc-btn dc-ghost" data-a="files" type="button">เอกสารแนบ</button>');
     if (has('close')) bar.push('<button class="dc-btn dc-primary" data-a="close" type="button">Close session (HR Manager)</button>');
     if (has('reopenClosed')) bar.push('<button class="dc-btn dc-ghost" data-a="reopenClosed" type="button">Reopen closed session</button>');
     if (has('printExtReq')) bar.push('<button class="dc-btn dc-ghost" data-a="printExtReq" type="button">Print FM-HR-02</button>');
@@ -1546,7 +1553,7 @@ const TrainingSession = {
         : '<p class="dc-faint" style="padding:6px;color:#9ca3af">ยังไม่มีฝ่ายถูกเรียกเข้าอบรม</p>'}</div>
       </div>
       <div class="dc-card" style="margin-top:12px"><h3 style="margin:0 0 10px;font-size:15px">รายชื่อผู้เข้าอบรม <span class="dc-faint" style="font-weight:400;font-size:12px">${att.length} คน</span></h3>
-        ${att.length ? `<table class="dc-tbl"><thead><tr><th>#</th><th>รหัส</th><th>ชื่อ-นามสกุล</th><th>ตำแหน่ง</th><th>เพิ่มโดย</th><th></th></tr></thead><tbody>${attRows}</tbody></table>`
+        ${att.length ? `<table class="dc-tbl"><thead><tr><th>#</th><th>รหัส</th><th>ชื่อ-นามสกุล</th><th>ตำแหน่ง</th><th>เพิ่มโดย</th><th>ผลการอบรม</th><th></th></tr></thead><tbody>${attRows}</tbody></table>`
         : '<p class="dc-faint" style="padding:6px;color:#9ca3af">ยังไม่มีรายชื่อ</p>'}</div>
       <div id="tsActErr"></div>
       ${bar.length ? `<div class="dc-bar" style="margin-top:12px;flex-wrap:wrap">${bar.join('')}</div>` : ''}
@@ -1563,6 +1570,7 @@ const TrainingSession = {
     c.querySelectorAll('[data-rmdept]').forEach(b => b.addEventListener('click', ev => this.run('removeTrainingSessionDept', { sessionId: s.SessionID, dept: b.dataset.rmdept }, 'ลบฝ่ายแล้ว', ev.currentTarget)));
     c.querySelectorAll('[data-rmatt]').forEach(b => b.addEventListener('click', ev => this.run('removeTrainingSessionAttendee', { attendeeId: b.dataset.rmatt }, 'ลบรายชื่อแล้ว', ev.currentTarget)));
     c.querySelectorAll('[data-print6]').forEach(b => b.addEventListener('click', () => this.printAssign(b.dataset.print6)));
+    c.querySelectorAll('[data-card]').forEach(b => b.addEventListener('click', () => this.printHistoryCard(b.dataset.card)));
   },
 
   onAction(a, bt) {
@@ -1575,6 +1583,10 @@ const TrainingSession = {
     if (a === 'open') return this.run('openTrainingSession', { sessionId: id }, 'เปิดรับสมัครแล้ว', bt);
     if (a === 'closeReg') return this.run('closeTrainingSessionRegistration', { sessionId: id }, 'ปิดรับสมัครแล้ว', bt);
     if (a === 'reopenReg') return this.reasonModal('Reopen registration', 'reopenTrainingSessionRegistration', { sessionId: id }, false);
+    if (a === 'results') return this.resultsScreen();
+    if (a === 'complete') return this.run('completeTrainingSession', { sessionId: id }, 'บันทึกผลเสร็จสิ้น', bt);
+    if (a === 'reopenResults') return this.reasonModal('แก้ไขผลการอบรม — กลับไปสถานะ CONFIRMED', 'reopenTrainingSessionResults', { sessionId: id }, false);
+    if (a === 'files') return this.filesModal();
     if (a === 'close') return this.run('closeTrainingSession', { sessionId: id }, 'ปิดรุ่นอบรมแล้ว', bt);
     if (a === 'reopenClosed') return this.reasonModal('Reopen closed session', 'reopenTrainingSession', { sessionId: id }, false);
     if (a === 'postpone') return this.reasonModal('Postpone this session', 'postponeTrainingSession', { sessionId: id }, true);
@@ -1802,35 +1814,562 @@ const TrainingSession = {
   },
 
   /** FM-HR-07 — registration / sign-in sheet, every type. */
-  async printRegister() {
-    const d = this.detail, s = d.session;
-    const att = d.attendees || [];
-    if (!att.length) { this.toast('ยังไม่มีรายชื่อ'); return; }
+  /* ==================== Phase 4 — บันทึกผลการอบรม ==================== */
+
+  /** หน้าจอกรอกผล: โหลดทุกอย่างในคำขอเดียว */
+  async resultsScreen() {
+    const c = document.getElementById('pageContent');
+    c.innerHTML = '<div class="dc-wrap"><p class="dc-faint">กำลังโหลดผลการอบรม…</p></div>';
+    try {
+      this._res = await API.get('getTrainingSessionResults', { token: this.token(), sessionId: this._id });
+    } catch (ex) {
+      c.innerHTML = `<div class="dc-wrap"><button class="dc-back" id="tsRBack">← กลับ</button>
+        <div class="dc-err">${trnEsc((ex && ex.message) || 'โหลดไม่สำเร็จ')}</div></div>`;
+      const b = document.getElementById('tsRBack'); if (b) b.addEventListener('click', () => this.openDetail(this._id));
+      return;
+    }
+    this.renderResults();
+  },
+
+  renderResults() {
+    const d = this._res, s = d.session, crit = d.criteria || {}, days = d.days || [];
+    const m = crit.methods || [];
+    const hasTest = m.indexOf('TEST') !== -1, hasPrac = m.indexOf('PRACTICAL') !== -1;
+    const editable = !!d.canRecord && s.status === 'CONFIRMED';
+    const slotCount = d.slotCount || 2;
+
+    const slotHead = days.map(dt => `<th colspan="2" class="ts-day">${trnEsc(tsShortDate(dt))}</th>`).join('');
+    const slotSub = days.map(() => '<th class="ts-h">เช้า</th><th class="ts-h">บ่าย</th>').join('');
+    const span = 4 + slotCount + 1 + (hasTest ? 1 : 0) + (hasPrac ? 2 : 0) + 3;
+
+    const rows = (d.attendees || []).map((a, i) => {
+      const cells = [];
+      for (let k = 0; k < slotCount; k++) {
+        cells.push(`<td class="ts-c"><input type="checkbox" data-slot="${k}" ${a.slots.charAt(k) === '1' ? 'checked' : ''} ${editable ? '' : 'disabled'}></td>`);
+      }
+      // ผลที่ถูกแก้ทับไว้ต้องติดกลับมากับแถว ไม่งั้นการเซฟรอบหน้าจะกลืนการแก้ทับหายไป
+      const over = (a.result && a.autoResult && a.result !== a.autoResult) ? a.result : '';
+      return `<tr data-aid="${trnEsc(a.attendeeId)}" data-auto="${trnEsc(a.autoResult || '')}"${over ? ` data-override="${trnEsc(over)}"` : ''}>
+        <td class="dc-faint ts-c">${i + 1}</td>
+        <td><span class="dc-id">${trnEsc(a.employeeId)}</span></td>
+        <td>${trnEsc(a.employeeName)}<div class="dc-faint" style="font-size:11px">${trnEsc(Training.deptName(a.departmentId))}</div></td>
+        ${cells.join('')}
+        <td class="ts-c ts-pct">${a.attendPct}%<div class="dc-faint" style="font-size:11px">${a.attendHours === '' ? '' : a.attendHours + ' ชม.'}</div></td>
+        ${hasTest ? `<td class="ts-c"><input class="dc-in ts-num" type="number" min="0" max="${crit.fullScore || 100}" data-f="score" value="${a.score === '' ? '' : a.score}" ${editable ? '' : 'disabled'}></td>` : ''}
+        ${hasPrac ? `<td class="ts-c"><input class="dc-in ts-num" type="number" min="0" max="100" data-f="prac" value="${a.practicalScore === '' ? '' : a.practicalScore}" ${editable ? '' : 'disabled'}></td>
+        <td class="ts-c ts-lv">${tsLevelCell(a.practicalScore)}</td>` : ''}
+        <td class="ts-c ts-res">${tsResultChip(a.result, a.autoResult)}</td>
+        <td><input class="dc-in ts-rm" data-f="remark" value="${trnEsc(a.remark)}" placeholder="หมายเหตุ" ${editable ? '' : 'disabled'}></td>
+        <td class="ts-c"><button class="dc-btn dc-ghost dc-sm" data-more type="button" ${editable ? '' : 'disabled'}>ใบรับรอง</button>
+          <input type="hidden" data-f="certNo" value="${trnEsc(a.certNo)}"><input type="hidden" data-f="certExpiry" value="${trnEsc(a.certExpiry)}"></td>
+      </tr>`;
+    }).join('');
+
+    const c = document.getElementById('pageContent');
+    c.innerHTML = `<div class="dc-wrap"><button class="dc-back" id="tsRBack">← กลับไปหน้ารุ่นอบรม</button>
+      <div class="dc-ph" style="margin-bottom:12px"><div>
+        <h1 style="margin:0;font-size:22px">บันทึกผลการอบรม</h1>
+        <p class="dc-muted" style="margin:4px 0 0">${trnEsc(s.subject)} · ${trnEsc(s.sessionNo)} &nbsp; ${tsBadge(s.status)}</p>
+      </div></div>
+
+      <div class="dc-card" style="margin-bottom:12px;font-size:12.5px;line-height:1.8">
+        <b>เกณฑ์ผ่าน</b> — ${trnEsc(tsCritText(crit))}<br>
+        <span class="dc-faint">ระดับทักษะจากคะแนน:</span> ${(d.scale || []).filter(x => x.level > 0).map(x => `${tsLevelIcon(x.level, 14)} ${x.from}–${x.to} = ${x.skill}%`).join(' &nbsp;·&nbsp; ')}
+      </div>
+
+      ${editable ? `<div class="dc-bar" style="margin-bottom:8px;flex-wrap:wrap">
+        <button class="dc-btn dc-ghost dc-sm" id="tsAllIn" type="button">✓ เข้าครบทุกคน</button>
+        <button class="dc-btn dc-ghost dc-sm" id="tsClearIn" type="button">ล้างการเข้าอบรมทั้งหมด</button>
+        ${hasPrac ? `<span class="dc-faint" style="font-size:12px">ใส่คะแนนปฏิบัติเท่ากันทุกคน</span>
+        <input class="dc-in ts-num" id="tsBulkPrac" type="number" min="0" max="100" style="width:70px">
+        <button class="dc-btn dc-ghost dc-sm" id="tsBulkGo" type="button">ใส่</button>` : ''}
+      </div>` : ''}
+
+      <div class="dc-card" style="overflow-x:auto">
+        <table class="dc-tbl ts-grid"><thead>
+          <tr><th rowspan="2" style="width:34px">#</th><th rowspan="2" style="width:80px">รหัส</th><th rowspan="2">ชื่อ - นามสกุล</th>
+            ${slotHead}
+            <th rowspan="2" style="width:66px">เวลา</th>
+            ${hasTest ? '<th rowspan="2" style="width:74px">คะแนน<br>ทดสอบ</th>' : ''}
+            ${hasPrac ? '<th rowspan="2" style="width:74px">คะแนน<br>ปฏิบัติ</th><th rowspan="2" style="width:60px">ระดับ</th>' : ''}
+            <th rowspan="2" style="width:92px">ผลประเมิน</th><th rowspan="2" style="width:150px">หมายเหตุ</th><th rowspan="2" style="width:76px"></th></tr>
+          <tr>${slotSub}</tr>
+        </thead><tbody>${rows || `<tr><td colspan="${span}" class="dc-faint" style="padding:10px">ยังไม่มีรายชื่อ</td></tr>`}</tbody></table>
+      </div>
+
+      <div id="tsResErr"></div>
+      <div class="dc-bar" style="margin-top:12px;flex-wrap:wrap">
+        ${editable ? '<button class="dc-btn dc-primary" id="tsSave" type="button">บันทึกผล</button>' : ''}
+        ${editable ? '<button class="dc-btn dc-ghost" id="tsSaveDone" type="button">บันทึกแล้วปิดการกรอก (DONE)</button>' : ''}
+        <button class="dc-btn dc-ghost" id="tsFiles" type="button">เอกสารแนบ (${(d.files || []).length})</button>
+        <button class="dc-btn dc-ghost" id="tsPrintReg" type="button">พิมพ์ FM-HR-07</button>
+      </div>
+
+      <style>
+        .ts-grid th{font-size:11.5px;text-align:center;vertical-align:middle}
+        .ts-grid td{vertical-align:middle}
+        .ts-grid td.ts-c{text-align:center}
+        .ts-grid th.ts-day{background:#eef2ff}
+        .ts-grid th.ts-h{font-weight:400;font-size:11px}
+        .ts-num{width:62px;padding:3px 5px;text-align:center}
+        .ts-rm{padding:3px 6px;font-size:12px}
+        .ts-chip{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11.5px;font-weight:600}
+        .ts-pass{background:#dcfce7;color:#166534}.ts-fail{background:#fee2e2;color:#991b1b}
+        .ts-abs{background:#f3f4f6;color:#6b7280}.ts-att{background:#dbeafe;color:#1e40af}
+        .ts-ovr{display:block;font-size:10px;color:#b45309;font-weight:400}
+        .dc-sm{padding:3px 8px;font-size:11.5px}
+      </style>
+    </div><div class="dc-toast" id="dcToast"></div>`;
+
+    document.getElementById('tsRBack').addEventListener('click', () => this.openDetail(this._id));
+    const pr = document.getElementById('tsPrintReg'); if (pr) pr.addEventListener('click', () => this.printRegister());
+    const fb = document.getElementById('tsFiles'); if (fb) fb.addEventListener('click', () => this.filesModal());
+
+    if (!editable) return;
+    const recalc = tr => this.recalcRow(tr);
+    c.querySelectorAll('tbody tr[data-aid]').forEach(tr => {
+      tr.querySelectorAll('input[data-slot],input[data-f]').forEach(el => {
+        el.addEventListener('change', () => recalc(tr));
+        if (el.type === 'number') el.addEventListener('input', () => recalc(tr));
+      });
+      const more = tr.querySelector('[data-more]');
+      if (more) more.addEventListener('click', () => this.certModal(tr));
+    });
+    document.getElementById('tsAllIn').addEventListener('click', () => {
+      c.querySelectorAll('tbody tr[data-aid]').forEach(tr => { tr.querySelectorAll('input[data-slot]').forEach(x => { x.checked = true; }); recalc(tr); });
+    });
+    document.getElementById('tsClearIn').addEventListener('click', () => {
+      c.querySelectorAll('tbody tr[data-aid]').forEach(tr => { tr.querySelectorAll('input[data-slot]').forEach(x => { x.checked = false; }); recalc(tr); });
+    });
+    const bg = document.getElementById('tsBulkGo');
+    if (bg) bg.addEventListener('click', () => {
+      const v = document.getElementById('tsBulkPrac').value;
+      c.querySelectorAll('tbody tr[data-aid]').forEach(tr => { const el = tr.querySelector('[data-f="prac"]'); if (el) { el.value = v; recalc(tr); } });
+    });
+    document.getElementById('tsSave').addEventListener('click', ev => this.saveResults(ev.currentTarget, false));
+    document.getElementById('tsSaveDone').addEventListener('click', ev => this.saveResults(ev.currentTarget, true));
+  },
+
+  /** คิดผลใหม่ในหน้าจอ ใช้กติกาเดียวกับฝั่งเซิร์ฟเวอร์ */
+  recalcRow(tr) {
+    const d = this._res, crit = d.criteria || {};
+    const slots = Array.from(tr.querySelectorAll('input[data-slot]')).map(x => x.checked ? '1' : '0').join('');
+    const hit = slots.split('').filter(x => x === '1').length;
+    const total = slots.length || 1;
+    const pct = Math.round((hit / total) * 10000) / 100;
+    const hours = Number(d.session.hours) > 0 ? Math.round((Number(d.session.hours) * hit / total) * 100) / 100 : '';
+    const pc = tr.querySelector('.ts-pct');
+    if (pc) pc.innerHTML = `${pct}%<div class="dc-faint" style="font-size:11px">${hours === '' ? '' : hours + ' ชม.'}</div>`;
+
+    const scEl = tr.querySelector('[data-f="score"]'), prEl = tr.querySelector('[data-f="prac"]');
+    const score = scEl && scEl.value !== '' ? Number(scEl.value) : '';
+    const prac = prEl && prEl.value !== '' ? Number(prEl.value) : '';
+    const lvCell = tr.querySelector('.ts-lv');
+    if (lvCell) lvCell.innerHTML = tsLevelCell(prac);
+
+    const auto = tsAutoResult(crit, hit > 0, pct, score, prac);
+    tr.dataset.auto = auto;
+    const ov = tr.dataset.override || '';
+    const cell = tr.querySelector('.ts-res');
+    if (cell) cell.innerHTML = tsResultChip(ov || auto, auto);
+  },
+
+  async saveResults(bt, thenDone) {
+    const c = document.getElementById('pageContent');
+    const rows = Array.from(c.querySelectorAll('tbody tr[data-aid]')).map(tr => ({
+      attendeeId: tr.dataset.aid,
+      slots: Array.from(tr.querySelectorAll('input[data-slot]')).map(x => x.checked ? '1' : '0').join(''),
+      score: (tr.querySelector('[data-f="score"]') || {}).value || '',
+      practicalScore: (tr.querySelector('[data-f="prac"]') || {}).value || '',
+      result: tr.dataset.override || '',
+      remark: (tr.querySelector('[data-f="remark"]') || {}).value || '',
+      certNo: (tr.querySelector('[data-f="certNo"]') || {}).value || '',
+      certExpiry: (tr.querySelector('[data-f="certExpiry"]') || {}).value || ''
+    }));
+    if (!rows.length) { this.toast('ยังไม่มีรายชื่อ'); return; }
+    const prev = bt.textContent; bt.disabled = true; bt.textContent = 'กำลังบันทึก…';
+    const err = document.getElementById('tsResErr'); if (err) err.innerHTML = '';
+    try {
+      await API.post('saveTrainingSessionResults', { token: this.token(), sessionId: this._id, rows });
+      if (thenDone) {
+        const r = await API.post('completeTrainingSession', { token: this.token(), sessionId: this._id });
+        this.toast(r && r.message ? r.message : 'บันทึกผลเสร็จสิ้น');
+        return this.openDetail(this._id);
+      }
+      this.toast('บันทึกผลแล้ว');
+      this.resultsScreen();
+    } catch (ex) {
+      bt.disabled = false; bt.textContent = prev;
+      if (err) err.innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'บันทึกไม่สำเร็จ')}</div>`;
+    }
+  },
+
+  /** แก้ผลทับ + ใบรับรอง ของคนเดียว */
+  certModal(tr) {
+    const auto = tr.dataset.auto || '';
+    const cur = tr.dataset.override || '';
+    const certNo = tr.querySelector('[data-f="certNo"]');
+    const certEx = tr.querySelector('[data-f="certExpiry"]');
+    const name = tr.children[2].textContent.trim();
+    const scrim = document.createElement('div'); scrim.className = 'dc-scrim';
+    scrim.innerHTML = `<div class="dc-modal"><h3 style="margin:0 0 4px">${trnEsc(name)}</h3>
+      <p class="dc-faint" style="margin:0 0 12px;font-size:12px">ระบบคำนวณได้: <b>${trnEsc(tsResultTh(auto))}</b></p>
+      <div class="dc-field"><label>แก้ผลทับ (ต้องใส่หมายเหตุ)</label>
+        <select class="dc-in" id="tsOv"><option value="">— ใช้ผลที่ระบบคำนวณ —</option>
+          ${['PASS', 'FAIL', 'ABSENT', 'ATTENDED'].map(x => `<option value="${x}" ${cur === x ? 'selected' : ''}>${tsResultTh(x)}</option>`).join('')}</select></div>
+      <div class="dc-field"><label>เลขที่ใบรับรอง</label><input class="dc-in" id="tsCn" value="${trnEsc(certNo ? certNo.value : '')}"></div>
+      <div class="dc-field"><label>วันหมดอายุใบรับรอง</label><input class="dc-in" id="tsCe" type="date" value="${trnEsc(certEx ? certEx.value : '')}"></div>
+      <div class="dc-bar" style="margin-top:14px"><button class="dc-btn dc-primary" id="tsOk" type="button">ตกลง</button>
+        <button class="dc-btn dc-ghost" id="tsX" type="button">ยกเลิก</button></div></div>`;
+    document.body.appendChild(scrim);
+    const close = () => scrim.remove();
+    scrim.querySelector('#tsX').addEventListener('click', close);
+    scrim.querySelector('#tsOk').addEventListener('click', () => {
+      tr.dataset.override = scrim.querySelector('#tsOv').value;
+      if (certNo) certNo.value = scrim.querySelector('#tsCn').value;
+      if (certEx) certEx.value = scrim.querySelector('#tsCe').value;
+      close();
+      this.recalcRow(tr);
+    });
+  },
+
+  /* ==================== เอกสารแนบ ==================== */
+
+  async filesModal() {
+    let files = [];
+    try { const r = await API.get('getTrainingSessionFiles', { token: this.token(), sessionId: this._id }); files = r.files || []; }
+    catch (ex) { this.toast((ex && ex.message) || 'โหลดไฟล์ไม่สำเร็จ'); return; }
+    const st = String((this._res && this._res.session.status) || (this.detail && this.detail.session.Status) || '').toUpperCase();
+    const canEdit = ['CLOSED', 'CANCELLED'].indexOf(st) === -1;
+
+    const list = files.length ? files.map(f => `<tr><td>${trnEsc(tsFileCat(f.category))}</td>
+      <td><a href="${trnEsc(f.url)}" target="_blank" rel="noopener">${trnEsc(f.fileName)}</a>
+        ${f.source === 'LINK' ? '<span class="dc-badge dc-b-off" style="margin-left:6px">ลิงก์</span>' : ''}</td>
+      <td class="dc-faint">${f.sizeKB ? Math.round(f.sizeKB) + ' KB' : ''}</td>
+      <td class="dc-faint">${trnEsc(f.uploadedByName)}</td>
+      <td>${canEdit ? `<button class="dc-btn dc-ghost dc-sm" data-rmf="${trnEsc(f.fileRowId)}" type="button">ลบ</button>` : ''}</td></tr>`).join('')
+      : '<tr><td colspan="5" class="dc-faint" style="padding:8px">ยังไม่มีเอกสารแนบ</td></tr>';
+
+    const cats = [['MATERIAL', 'เอกสารหลักสูตร'], ['REGISTER', 'ใบลงทะเบียนที่เซ็นแล้ว'], ['TEST', 'เอกสารการทดสอบ'], ['CERT', 'ใบรับรอง'], ['OTHER', 'อื่น ๆ']];
+    const scrim = document.createElement('div'); scrim.className = 'dc-scrim';
+    scrim.innerHTML = `<div class="dc-modal" style="max-width:720px"><h3 style="margin:0 0 12px">เอกสารแนบ</h3>
+      <table class="dc-tbl"><thead><tr><th style="width:150px">ประเภท</th><th>ไฟล์</th><th style="width:70px">ขนาด</th><th style="width:110px">แนบโดย</th><th style="width:50px"></th></tr></thead>
+        <tbody>${list}</tbody></table>
+      ${canEdit ? `<div style="margin-top:14px;border-top:1px solid #e5e7eb;padding-top:12px">
+        <div class="dc-field"><label>ประเภทเอกสาร</label><select class="dc-in" id="tsFc">${cats.map(x => `<option value="${x[0]}">${x[1]}</option>`).join('')}</select></div>
+        <div class="dc-field"><label>เลือกไฟล์ (เลือกหลายไฟล์พร้อมกันได้ · รูปจะถูกย่อให้อัตโนมัติ)</label>
+          <input class="dc-in" id="tsFi" type="file" multiple accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx"></div>
+        <div class="dc-field"><label>หรือวางลิงก์ Google Drive (สำหรับไฟล์ใหญ่ที่แอดมินอัปโหลดเข้าโฟลเดอร์เอง)</label>
+          <div style="display:flex;gap:6px"><input class="dc-in" id="tsFl" placeholder="https://drive.google.com/file/d/…">
+            <button class="dc-btn dc-ghost" id="tsFlGo" type="button">แนบลิงก์</button></div></div>
+        <div id="tsFp" class="dc-faint" style="font-size:12px;line-height:1.7"></div>
+        <div id="tsFe"></div>
+      </div>` : ''}
+      <div class="dc-bar" style="margin-top:14px"><button class="dc-btn dc-ghost" id="tsFx" type="button">ปิด</button></div></div>`;
+    document.body.appendChild(scrim);
+    const close = () => scrim.remove();
+    scrim.querySelector('#tsFx').addEventListener('click', close);
+    scrim.querySelectorAll('[data-rmf]').forEach(b => b.addEventListener('click', async () => {
+      b.disabled = true;
+      try { await API.post('deleteTrainingSessionFile', { token: this.token(), fileRowId: b.dataset.rmf }); close(); this.toast('ลบแล้ว'); this.filesModal(); }
+      catch (ex) { b.disabled = false; scrim.querySelector('#tsFe').innerHTML = `<div class="dc-err">${trnEsc(ex.message || 'ลบไม่สำเร็จ')}</div>`; }
+    }));
+    if (!canEdit) return;
+
+    const prog = scrim.querySelector('#tsFp'), errBox = scrim.querySelector('#tsFe');
+    scrim.querySelector('#tsFi').addEventListener('change', async ev => {
+      const list2 = Array.from(ev.target.files || []);
+      if (!list2.length) return;
+      const cat = scrim.querySelector('#tsFc').value;
+      errBox.innerHTML = ''; prog.innerHTML = '';
+      let done = 0;
+      for (const f of list2) {
+        const line = document.createElement('div');
+        line.textContent = f.name + ' — กำลังเตรียม…';
+        prog.appendChild(line);
+        try {
+          const p = await tsPrepFile(f);
+          line.textContent = `${f.name} ${tsKb(f.size)} → ${tsKb(p.bytes)} — กำลังส่ง…`;
+          await API.post('uploadTrainingSessionFile', {
+            token: this.token(), sessionId: this._id, category: cat,
+            fileName: p.fileName, mimeType: p.mimeType, base64: p.base64
+          });
+          line.textContent = `${p.fileName} ${tsKb(p.bytes)} ✓`;
+          done++;
+        } catch (ex) {
+          line.innerHTML = `<span style="color:#b91c1c">${trnEsc(f.name)} — ${trnEsc((ex && ex.message) || 'ส่งไม่สำเร็จ')}</span>`;
+        }
+      }
+      if (done) { setTimeout(() => { close(); this.filesModal(); }, 900); }
+    });
+    scrim.querySelector('#tsFlGo').addEventListener('click', async ev => {
+      const url = scrim.querySelector('#tsFl').value.trim();
+      if (!url) return;
+      ev.currentTarget.disabled = true; errBox.innerHTML = '';
+      try {
+        await API.post('linkTrainingSessionFile', { token: this.token(), sessionId: this._id, category: scrim.querySelector('#tsFc').value, url });
+        close(); this.toast('แนบลิงก์แล้ว'); this.filesModal();
+      } catch (ex) {
+        ev.currentTarget.disabled = false;
+        errBox.innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'แนบไม่สำเร็จ')}</div>`;
+      }
+    });
+  },
+
+  /* ==================== FM-HR-07 · FM-HR-09 ==================== */
+
+  /** ถามก่อนพิมพ์ว่าจะแสดงเลขบัตรประชาชนแบบไหน แล้วค่อยดึงข้อมูลจากเซิร์ฟเวอร์ */
+  printRegister() {
+    const scrim = document.createElement('div'); scrim.className = 'dc-scrim';
+    scrim.innerHTML = `<div class="dc-modal"><h3 style="margin:0 0 6px">พิมพ์ใบลงทะเบียน FM-HR-07</h3>
+      <p class="dc-faint" style="margin:0 0 12px;font-size:12px">อบรมหลายวันจะพิมพ์แยกแผ่นละวัน</p>
+      <div class="dc-field"><label>เลขที่บัตรประชาชน <span class="dc-faint">(ข้อมูลส่วนบุคคล — ค่าเริ่มต้นมาจาก Settings)</span></label>
+        <select class="dc-in" id="tsCm">
+          <option value="">ตามค่าเริ่มต้นของบริษัท</option>
+          <option value="HIDE">ไม่แสดง</option>
+          <option value="MASK">แสดง 4 ตัวท้าย</option>
+          <option value="FULL">แสดงเต็ม</option></select></div>
+      <div class="dc-bar" style="margin-top:14px"><button class="dc-btn dc-primary" id="tsPg" type="button">พิมพ์</button>
+        <button class="dc-btn dc-ghost" id="tsPx" type="button">ยกเลิก</button></div></div>`;
+    document.body.appendChild(scrim);
+    const close = () => scrim.remove();
+    scrim.querySelector('#tsPx').addEventListener('click', close);
+    scrim.querySelector('#tsPg').addEventListener('click', async ev => {
+      const mode = scrim.querySelector('#tsCm').value;
+      ev.currentTarget.disabled = true;
+      try { await this.doPrintRegister(mode); close(); }
+      catch (ex) { ev.currentTarget.disabled = false; this.toast((ex && ex.message) || 'พิมพ์ไม่สำเร็จ'); }
+    });
+  },
+
+  async doPrintRegister(mode) {
+    const p = { token: this.token(), sessionId: this._id };
+    if (mode) p.citizenMode = mode;
+    const d = await API.get('getTrainingSessionRegister', p);
+    const s = d.session, days = d.days || [], rows = d.rows || [], crit = d.criteria || {};
+    if (!rows.length) { this.toast('ยังไม่มีรายชื่อ'); return; }
     const logo = await this.ensureLogo();
-    const formNo = (d.formNos && d.formNos.register) || 'FM-HR-07';
-    const rows = att.map((a, i) => `<tr><td class="c">${i + 1}</td><td class="c">${trnEsc(a.EmployeeID)}</td>
-      <td>${trnEsc(a.EmployeeName)}</td><td>${trnEsc(Training.deptName(a.DepartmentID))}</td>
-      <td>${trnEsc(a.Position)}</td><td class="s"></td><td class="s"></td><td></td></tr>`).join('')
-      + Array.from({ length: Math.max(0, 15 - att.length) }).map((_, i) => `<tr><td class="c">${att.length + i + 1}</td><td></td><td></td><td></td><td></td><td class="s"></td><td class="s"></td><td></td></tr>`).join('');
+    const formNo = (this.detail && this.detail.formNos && this.detail.formNos.register) || 'FM-HR-07';
+    const showId = d.citizenMode !== 'HIDE';
+
+    const pages = (days.length ? days : ['']).map((day, di) => {
+      const body = rows.map((r, i) => {
+        const am = r.slots.charAt(di * 2) === '1' ? '✓' : '';
+        const pm = r.slots.charAt(di * 2 + 1) === '1' ? '✓' : '';
+        return `<tr>
+          <td class="c">${i + 1}</td><td class="c">${trnEsc(r.employeeId)}</td>
+          <td>${trnEsc(r.employeeName)}${showId && r.citizenId ? `<div class="cid">${trnEsc(r.citizenId)}</div>` : ''}</td>
+          <td class="c">${trnEsc(Training.deptName(r.departmentId))}</td>
+          <td class="c">${r.years === '' ? '' : r.years}</td>
+          <td class="sg2">${am}</td><td class="sg2">${pm}</td>
+          <td class="c">${r.score === '' ? '' : r.score}</td>
+          <td class="c">${r.practicalScore === '' ? '' : r.practicalScore}</td>
+          <td class="c">${r.result === 'PASS' || r.result === 'ATTENDED' ? '✓' : ''}</td>
+          <td class="c">${r.result === 'FAIL' ? '✓' : ''}</td>
+          <td class="c">${r.recorded ? '✓' : ''}</td></tr>`;
+      }).join('');
+      const blanks = Array.from({ length: Math.max(0, 14 - rows.length) }).map((_, i) =>
+        `<tr><td class="c">${rows.length + i + 1}</td><td></td><td></td><td></td><td></td><td class="sg2"></td><td class="sg2"></td><td></td><td></td><td></td><td></td><td></td></tr>`).join('');
+      return `<div class="pg">
+        ${this.formHead(logo, 'ใบลงทะเบียนเข้ารับการฝึกอบรม', 'TRAINING REGISTRATION', formNo)}
+        ${this.kvTable([
+          ['หลักสูตร', s.subject + (s.courseCode ? '  (' + s.courseCode + ')' : '')],
+          ['ประเภท / รุ่น', tpTypeLabel(s.trainingType) + '     เลขที่รุ่น ' + s.sessionNo],
+          ['วันที่อบรม', (day ? tsShortDate(day) + '     ' : '') + (days.length > 1 ? '(วันที่ ' + (di + 1) + ' จาก ' + days.length + ')     ' : '') + (s.timeText || '') + (s.hours ? '     รวม ' + s.hours + ' ชั่วโมง' : '')],
+          ['สถานที่', s.venue || ''],
+          ['วิทยากร / สถาบัน', s.trainer || s.provider || '']
+        ])}
+        <table class="lst reg"><thead>
+          <tr><th rowspan="2" class="w1">ลำดับ<br>ที่</th><th rowspan="2" class="w2">รหัส<br>พนักงาน</th><th rowspan="2" class="w3">ชื่อ - สกุล</th>
+            <th rowspan="2" class="w4">แผนก</th><th rowspan="2" class="w5">อายุงาน<br>(ปี)</th>
+            <th colspan="2" class="w6">ลงชื่อผู้เข้าอบรม</th>
+            <th rowspan="2" class="w7">คะแนน<br>ทดสอบ</th><th rowspan="2" class="w7">คะแนน<br>ปฏิบัติ</th>
+            <th colspan="2" class="w8">ผลประเมิน</th><th rowspan="2" class="w9">บันทึก<br>ประวัติ</th></tr>
+          <tr><th class="w6">เช้า</th><th class="w6">บ่าย</th><th class="w8">ผ่าน</th><th class="w8">ไม่ผ่าน</th></tr>
+        </thead><tbody>${body}${blanks}</tbody></table>
+        <div class="note"><b>วิธีการประเมินผล:</b> ${trnEsc(tsMethodsText((crit.methods || []).join('|')))}<br>
+          <b>เกณฑ์ผ่าน:</b> ${trnEsc(tsCritText(crit))}<br>
+          <b>ระดับทักษะจากคะแนน:</b> 91–100 = 100% · 81–90 = 75% · 71–80 = 50% · 61–70 = 25% · ต่ำกว่า 61 = ไม่ถึงระดับ</div>
+        ${this.signBox([['วิทยากร', s.trainer || '', ''], ['ผู้จัดการฝึกอบรม', '', '']])}
+      </div>`;
+    }).join('');
+
+    trnPrint(formNo.split(/\s+/)[0] + ' · ' + s.sessionNo, 'size: A4 portrait; margin: 10mm;',
+      `<div class="fm">${pages}</div>${this.printStyle()}${tsRegStyle()}`);
+  },
+
+  /** FM-HR-09 — ประวัติการฝึกอบรมรายบุคคล */
+  async printHistoryCard(employeeId) {
+    let d;
+    try { d = await API.get('getTrainingHistoryCard', { token: this.token(), employeeId }); }
+    catch (ex) { this.toast((ex && ex.message) || 'โหลดไม่สำเร็จ'); return; }
+    const logo = await this.ensureLogo();
+    const formNo = 'FM-HR-09';
+    const rows = (d.rows || []).map((h, i) => `<tr>
+      <td class="c">${i + 1}</td><td class="c">${trnEsc(trnDate(h.TrainingDate))}</td>
+      <td>${trnEsc(h.CourseName)}${h.CourseCode ? ' <span class="cid">(' + trnEsc(h.CourseCode) + ')</span>' : ''}</td>
+      <td class="c">${trnEsc(tpTypeLabel(h.CourseType))}</td>
+      <td class="c">${h.DurationHours === '' || h.DurationHours == null ? '' : h.DurationHours}</td>
+      <td>${trnEsc(h.Trainer)}</td>
+      <td class="c">${h.Score === '' || h.Score == null ? '' : h.Score}</td>
+      <td class="c">${trnEsc(tsResultTh(h.Result))}</td>
+      <td class="c">${trnEsc(h.CertNo || '')}</td></tr>`).join('')
+      || '<tr><td colspan="9" class="c" style="padding:10px">ยังไม่มีประวัติการฝึกอบรม</td></tr>';
     const body = `<div class="pg">
-      ${this.formHead(logo, 'ใบลงทะเบียนเข้ารับการฝึกอบรม', 'TRAINING REGISTRATION', formNo)}
+      ${this.formHead(logo, 'ประวัติการฝึกอบรมพนักงาน', 'EMPLOYEE TRAINING RECORD', formNo)}
       ${this.kvTable([
-      ['หลักสูตร', s.Subject + (s.CourseCode ? '  (' + s.CourseCode + ')' : '')],
-      ['ประเภทการอบรม', tpTypeLabel(s.TrainingType) + '     เลขที่รุ่น ' + s.SessionNo],
-      ['วันที่อบรม', tsRange(s.StartDate, s.EndDate) + '     ' + (s.TimeText || '') + (s.Hours ? '     รวม ' + s.Hours + ' ชั่วโมง' : '')],
-      ['สถานที่', s.Venue || ''],
-      ['วิทยากร / สถาบัน', s.Trainer || s.Provider || '']
-    ])}
-      <table class="lst"><thead><tr><th style="width:30px">ลำดับ</th><th style="width:78px">รหัส</th><th>ชื่อ - นามสกุล</th>
-        <th style="width:110px">ฝ่าย</th><th style="width:100px">ตำแหน่ง</th><th style="width:110px">ลายมือชื่อ (เข้า)</th>
-        <th style="width:110px">ลายมือชื่อ (ออก)</th><th style="width:60px">หมายเหตุ</th></tr></thead>
+        ['ชื่อ - สกุล', d.employeeName + '   (' + d.employeeId + ')'],
+        ['แผนก / ตำแหน่ง', Training.deptName(d.departmentId) + (d.position ? '   ' + d.position : '')],
+        ['วันที่เริ่มงาน', (d.startDate ? trnDate(d.startDate) : '-') + (d.years === '' ? '' : '     อายุงาน ' + d.years + ' ปี')]
+      ])}
+      <table class="lst"><thead><tr><th style="width:8mm">ลำดับ</th><th style="width:22mm">วันที่อบรม</th><th>หลักสูตร</th>
+        <th style="width:20mm">ประเภท</th><th style="width:14mm">ชั่วโมง</th><th style="width:30mm">วิทยากร</th>
+        <th style="width:14mm">คะแนน</th><th style="width:16mm">ผล</th><th style="width:24mm">ใบรับรอง</th></tr></thead>
         <tbody>${rows}</tbody></table>
-      <div class="note"><b>วิธีการประเมินผล:</b> ${trnEsc(tsMethodsText(s.AssessMethods))}<br>
-        <b>เกณฑ์ผ่าน:</b> ${trnEsc(tsCriteriaText(s))}</div>
-      ${this.signBox([['วิทยากร', s.Trainer || '', ''], ['ผู้จัดการฝึกอบรม', s.CreatedByName, trnDate(s.CreatedDate)]])}
+      ${this.signBox([['ผู้บันทึก', '', ''], ['ผู้จัดการฝ่ายบุคคล', '', '']])}
     </div>`;
-    trnPrint(formNo.split(/\s+/)[0] + ' · ' + s.SessionNo, 'size: A4 portrait; margin: 10mm;', `<div class="fm">${body}</div>${this.printStyle()}`);
+    trnPrint(formNo + ' · ' + d.employeeId, 'size: A4 portrait; margin: 10mm;', `<div class="fm">${body}</div>${this.printStyle()}${tsRegStyle()}`);
   }
 };
 
-function loadTrainingSessions() { TrainingSession._logo = undefined; TrainingSession._id = ''; TrainingSession.load(); }
+/* ==================== helpers ที่ใช้ร่วมกัน (Phase 4) ==================== */
+
+/** ช่วงคะแนน → Skill % — ต้องตรงกับ TRR_BANDS_ ฝั่ง Apps Script เป๊ะ */
+const TS_BANDS = [
+  { min: 91, skill: 100, level: 4 }, { min: 81, skill: 75, level: 3 },
+  { min: 71, skill: 50, level: 2 }, { min: 61, skill: 25, level: 1 },
+  { min: 51, skill: 24, level: 0 }, { min: 0, skill: 0, level: 0 }
+];
+function tsBand(score) {
+  if (score === '' || score == null || isNaN(Number(score))) return { skill: '', level: 0 };
+  const n = Number(score);
+  for (const b of TS_BANDS) if (n >= b.min) return b;
+  return { skill: 0, level: 0 };
+}
+
+/**
+ * วงกลมระดับทักษะ วาดด้วย SVG — รัศมีเท่ากันทุกระดับ เท่ากันทุกเครื่อง และพิมพ์ออกกระดาษได้
+ * (ตัวอักษร ●◕◑◔ มาจากคนละบล็อกในฟอนต์ ขนาดจึงไม่เท่ากัน และบางเครื่องขึ้นเป็น □)
+ */
+function tsLevelIcon(lv, px) {
+  const s = px || 16, n = Number(lv) || 0;
+  const wedge = {
+    1: 'M8,8 L8,2 A6,6 0 0,1 14,8 Z',
+    2: 'M8,8 L8,2 A6,6 0 0,1 8,14 Z',
+    3: 'M8,8 L8,2 A6,6 0 1,1 2,8 Z'
+  };
+  const fill = n >= 4 ? '<circle cx="8" cy="8" r="6" fill="currentColor"/>'
+    : (wedge[n] ? `<path d="${wedge[n]}" fill="currentColor"/>` : '');
+  return `<svg viewBox="0 0 16 16" width="${s}" height="${s}" style="vertical-align:-2px" aria-hidden="true">
+    <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.2"/>${fill}</svg>`;
+}
+
+function tsLevelCell(score) {
+  const b = tsBand(score);
+  if (b.skill === '') return '<span class="dc-faint">—</span>';
+  if (!b.level) return `<span class="dc-faint" title="ยังไม่ถึงระดับ ${tsLevelIcon(1, 12)}">— ${b.skill}%</span>`;
+  return `${tsLevelIcon(b.level, 16)} <span class="dc-faint" style="font-size:11px">${b.skill}%</span>`;
+}
+
+function tsResultTh(r) {
+  return { PASS: 'ผ่าน', FAIL: 'ไม่ผ่าน', ABSENT: 'ขาดอบรม', ATTENDED: 'เข้าอบรม' }[String(r || '').toUpperCase()] || '—';
+}
+
+function tsResultChip(result, auto) {
+  const r = String(result || '').toUpperCase();
+  if (!r) return '<span class="dc-faint">—</span>';
+  const cls = { PASS: 'ts-pass', FAIL: 'ts-fail', ABSENT: 'ts-abs', ATTENDED: 'ts-att' }[r] || 'ts-abs';
+  const over = auto && auto !== r ? `<span class="ts-ovr">แก้ทับ (ระบบ: ${tsResultTh(auto)})</span>` : '';
+  return `<span class="ts-chip ${cls}">${tsResultTh(r)}</span>${over}`;
+}
+
+/** กติกาเดียวกับ trrComputeResult_ ฝั่งเซิร์ฟเวอร์ — เซิร์ฟเวอร์เป็นคนตัดสินจริงเสมอ */
+function tsAutoResult(crit, attended, pct, score, prac) {
+  if (!attended) return 'ABSENT';
+  const m = crit.methods || [];
+  if (!m.length) return 'ATTENDED';
+  if (m.indexOf('ATTENDANCE') !== -1 && pct < Number(crit.minAttendPct)) return 'FAIL';
+  if (m.indexOf('TEST') !== -1) {
+    if (score === '') return 'FAIL';
+    if (crit.passScore !== '' && Number(score) < Number(crit.passScore)) return 'FAIL';
+  }
+  if (m.indexOf('PRACTICAL') !== -1) {
+    if (prac === '') return 'FAIL';
+    if (tsBand(prac).level < Number(crit.minLevel)) return 'FAIL';
+  }
+  return 'PASS';
+}
+
+function tsCritText(crit) {
+  const m = (crit && crit.methods) || [];
+  const out = [];
+  if (m.indexOf('ATTENDANCE') !== -1) out.push('เวลาเข้าอบรม ' + (crit.minAttendPct || 100) + '%');
+  if (m.indexOf('TEST') !== -1) out.push('คะแนนทดสอบ ≥ ' + (crit.passScore === '' ? '—' : crit.passScore) + ' จาก ' + (crit.fullScore || 100));
+  if (m.indexOf('PRACTICAL') !== -1) out.push('คะแนนปฏิบัติถึงระดับ ' + (crit.minLevel || 3) + ' (' + ((crit.minLevel || 3) * 25) + '%)');
+  return out.length ? out.join('  ·  ') + '   — ต้องผ่านทุกข้อ' : 'ไม่มีการประเมิน (เข้าอบรมถือว่าจบ)';
+}
+
+function tsShortDate(v) {
+  const m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return String(v || '');
+  const th = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+  return Number(m[3]) + ' ' + th[Number(m[2]) - 1] + ' ' + (Number(m[1]) + 543).toString().slice(-2);
+}
+
+function tsFileCat(c) {
+  return { MATERIAL: 'เอกสารหลักสูตร', REGISTER: 'ใบลงทะเบียน', TEST: 'เอกสารการทดสอบ', CERT: 'ใบรับรอง', OTHER: 'อื่น ๆ' }[String(c || '').toUpperCase()] || c;
+}
+
+function tsKb(n) { return n >= 1024 * 1024 ? (n / 1024 / 1024).toFixed(1) + ' MB' : Math.round(n / 1024) + ' KB'; }
+
+/**
+ * เตรียมไฟล์ก่อนส่ง — รูปถูกย่อในเบราว์เซอร์ (Apps Script ย่อรูปเองไม่ได้ และการย่อก่อนส่ง
+ * ทำให้อัปโหลดเร็วขึ้นหลายเท่า) ไฟล์อื่นส่งตามเดิม
+ */
+function tsPrepFile(file) {
+  const maxPx = 1600, quality = 0.8;
+  const asIs = () => new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res({ base64: String(fr.result).split(',')[1], mimeType: file.type || 'application/octet-stream', fileName: file.name, bytes: file.size });
+    fr.onerror = () => rej(new Error('อ่านไฟล์ไม่ได้'));
+    fr.readAsDataURL(file);
+  });
+  if (!/^image\//i.test(file.type || '')) return asIs();
+  return new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const scale = Math.min(1, maxPx / Math.max(img.width, img.height));
+          const w = Math.max(1, Math.round(img.width * scale)), h = Math.max(1, Math.round(img.height * scale));
+          const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+          const cx = cv.getContext('2d');
+          cx.fillStyle = '#fff'; cx.fillRect(0, 0, w, h);
+          cx.drawImage(img, 0, 0, w, h);
+          const url = cv.toDataURL('image/jpeg', quality);
+          const b64 = url.split(',')[1];
+          res({ base64: b64, mimeType: 'image/jpeg', fileName: file.name.replace(/\.[^.]+$/, '') + '.jpg', bytes: Math.round(b64.length * 0.75) });
+        } catch (e) { asIs().then(res, rej); }
+      };
+      img.onerror = () => asIs().then(res, rej);
+      img.src = String(fr.result);
+    };
+    fr.onerror = () => rej(new Error('อ่านไฟล์ไม่ได้'));
+    fr.readAsDataURL(file);
+  });
+}
+
+/** ความกว้างคอลัมน์ FM-HR-07 บน A4 แนวตั้ง — รวม 190 มม. พอดี */
+function tsRegStyle() {
+  return `<style>
+    .fm .reg{table-layout:fixed;width:190mm}
+    .fm .reg th,.fm .reg td{font-size:9.5px;padding:2px 3px}
+    .fm .reg .w1{width:8mm}.fm .reg .w2{width:16mm}.fm .reg .w3{width:40mm}.fm .reg .w4{width:16mm}
+    .fm .reg .w5{width:10mm}.fm .reg .w6{width:22mm}.fm .reg .w7{width:14mm}.fm .reg .w8{width:9mm}.fm .reg .w9{width:10mm}
+    .fm .reg td.sg2{height:11mm;text-align:center}
+    .fm .cid{font-size:8px;color:#555}
+  </style>`;
+}
+
+function loadTrainingSessions() { TrainingSession._logo = undefined; TrainingSession._id = ''; TrainingSession._res = null; TrainingSession.load(); }
