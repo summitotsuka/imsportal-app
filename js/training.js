@@ -10,6 +10,24 @@ function trnFileUrl(id) { return 'https://drive.google.com/file/d/' + encodeURIC
 function trnReadFile(file) { return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res({ base64: String(r.result).split(',')[1], mimeType: file.type || 'application/octet-stream', fileName: file.name }); r.onerror = () => rej(new Error('อ่านไฟล์ไม่ได้')); r.readAsDataURL(file); }); }
 
 /** Open a print-ready window; wait for images (logo) so nothing prints half-loaded. */
+/**
+ * ปุ่มที่ต้องรอ (พิมพ์เอกสาร / ดึงข้อมูลก่อน) — ล็อกปุ่มและบอกผู้ใช้ว่ากำลังทำงานอยู่ ไม่ใช่ค้าง
+ * สำคัญ: ถ้าไม่ล็อก ผู้ใช้จะกดซ้ำระหว่างรอ แล้วได้หน้าต่างพิมพ์ซ้อนกันหลายใบ
+ */
+function trnBusy(bt, label, fn) {
+  if (!bt) return Promise.resolve().then(fn);
+  if (bt.dataset.busy === '1') return Promise.resolve();
+  bt.dataset.busy = '1';
+  const prev = bt.textContent;
+  bt.style.minWidth = bt.offsetWidth + 'px';
+  bt.disabled = true;
+  bt.textContent = label || '⏳ กำลังทำงาน…';
+  const restore = () => { bt.dataset.busy = ''; bt.disabled = false; bt.textContent = prev; bt.style.minWidth = ''; };
+  return Promise.resolve().then(fn)
+    .then(restore)
+    .catch(ex => { restore(); alert((ex && ex.message) || 'ไม่สำเร็จ'); });
+}
+
 function trnPrint(title, pageRule, bodyHtml) {
   const w = window.open('', '_blank');
   if (!w) { alert('Browser blocked the print window — please allow pop-ups and try again.'); return; }
@@ -821,7 +839,7 @@ const TrainingPlan = {
     document.getElementById('tpYear').addEventListener('change', e => this.load(parseInt(e.target.value, 10)));
     this.wireDept();
     const rv = document.getElementById('tpRev'); if (rv) rv.addEventListener('change', e => this.load(this._year, parseInt(e.target.value, 10)));
-    document.getElementById('tpPrint').addEventListener('click', () => this.print());
+    document.getElementById('tpPrint').addEventListener('click', ev => trnBusy(ev.currentTarget, '⏳ กำลังเตรียม…', () => this.print()));
     document.getElementById('tpCsv').addEventListener('click', () => this.csv());
     const wire = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', () => fn(el)); };
     wire('tpEdit', () => this.headerForm());
@@ -1107,11 +1125,35 @@ const TrainingPlan = {
     const weekHead = TP_MONTHS.map(() => '<th class="wk">1</th><th class="wk">2</th><th class="wk">3</th><th class="wk">4</th>').join('');
     // A planned week is drawn with a thick border (borders print even when background graphics are off).
     const cell = (set, m, w) => set[m + '-' + w] ? '<td class="c"><span class="bar"></span></td>' : '<td class="c"></td>';
+
+    /** Actual: the real training day, drawn as a numbered circle inside its month/week cell. */
+    const actualMap = o => {
+      const map = {};
+      String(o.ActualDates || '').split(',').map(s => s.trim()).filter(Boolean).forEach(s => {
+        const mm = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/); if (!mm) return;
+        const mo = Number(mm[2]), day = Number(mm[3]), wk = Math.min(4, Math.ceil(day / 7));
+        const k = mo + '-' + wk;
+        if (!map[k]) map[k] = [];
+        if (map[k].indexOf(day) === -1) map[k].push(day);
+      });
+      // items closed before ActualDates existed still show their week mark
+      if (!Object.keys(map).length) tpWeeks(o.ActualWeeks).forEach(k => { map[k] = []; });
+      return map;
+    };
+    const aCell = (map, m, w) => {
+      const k = m + '-' + w;
+      if (!(k in map)) return '<td class="c"></td>';
+      const days = map[k];
+      if (!days.length) return '<td class="c"><span class="bar"></span></td>';
+      return `<td class="c">${days.slice(0, 2).sort((a, b) => a - b).map(d => `<span class="day">${d}</span>`).join('')}</td>`;
+    };
+
     let lastType = null;
     const rows = items.map(o => {
       const set = {}; tpWeeks(o.PlanWeeks).forEach(k => set[k] = 1);
+      const amap = actualMap(o);
       let planCells = '', actualCells = '';
-      for (let m = 1; m <= 12; m++) for (let w = 1; w <= 4; w++) { planCells += cell(set, m, w); actualCells += '<td class="c"></td>'; }
+      for (let m = 1; m <= 12; m++) for (let w = 1; w <= 4; w++) { planCells += cell(set, m, w); actualCells += aCell(amap, m, w); }
       const t = String(o.TrainingType || '').toUpperCase();
       let head = '';
       if (t !== lastType) { lastType = t; head = `<tr><td colspan="55" class="gh">${trnEsc(tpTypeLabel(t))}</td></tr>`; }
@@ -1129,6 +1171,8 @@ const TrainingPlan = {
       .p4 th.mo{font-size:8px}.p4 th.wk{width:11px;font-size:7px;padding:0}
       .p4 td.c{width:11px;text-align:center;padding:1px 0}
       .p4 .bar{display:block;width:100%;border-top:8px solid #000;font-size:0;line-height:0}
+      .p4 .day{display:inline-block;min-width:12px;height:12px;line-height:11px;border:1px solid #000;border-radius:50%;
+        font-size:7px;font-weight:700;text-align:center;margin:0 .5px;padding:0 1px}
       .p4 td.pa{font-size:7.5px;white-space:nowrap}.p4 .sub{min-width:150px}
       .p4 .gh{background:#e8e8e8;font-weight:700;font-size:9px;text-align:left}
       .p4 .grp{min-width:74px;font-size:8px;white-space:normal}.p4 .rmk{min-width:70px}.p4 .foot td{height:16px}
@@ -1195,7 +1239,14 @@ function tsStageLabel(st) {
 function tsIsPending(st) { return ['PENDING_MGR', 'PENDING_HR', 'PENDING_QMS'].indexOf(String(st || '').toUpperCase()) !== -1; }
 const TS_METHODS = [['ATTENDANCE', 'Attendance (เวลาเข้าอบรม)'], ['TEST', 'Test (แบบทดสอบ)'], ['PRACTICAL', 'Practical (ลงมือปฏิบัติ)']];
 const TS_LEVEL_MARKS = ['◔', '◑', '◕', '●'];
-const TS_LEVEL_TH = ['สามารถทำได้ภายใต้คำแนะนำ', 'สามารถทำได้และอธิบายขั้นตอนหลักได้', 'สามารถทำได้และอธิบายจุดสำคัญได้', 'สามารถทำได้และอธิบายเหตุผลการปฏิบัติได้'];
+/** คำอธิบายระดับ ใช้ถ้อยคำเดียวกับ FM-HR-01 — index = ระดับ (0-4) */
+const TS_LEVEL_TH = [
+  'ไม่สามารถปฏิบัติงานได้',                          /* 0  ≤ 24% */
+  'สามารถปฏิบัติงานได้ภายใต้คำแนะนำ',                 /* 1  ≥ 25% */
+  'สามารถปฏิบัติงานได้และอธิบายขั้นตอนหลักได้',        /* 2  ≥ 50% */
+  'สามารถปฏิบัติงานได้และอธิบายจุดสำคัญได้',           /* 3  ≥ 75% */
+  'สามารถปฏิบัติงานได้และอธิบายเหตุผลการปฏิบัติได้'    /* 4   100% */
+];
 
 function tsBadge(st) { const m = TS_STATUS[String(st || '').toUpperCase()] || [st || '—', 'dc-b-off']; return `<span class="dc-badge ${m[1]}">${m[0]}</span>`; }
 function tsDeptBadge(st) { return String(st || '').toUpperCase() === 'CONFIRMED' ? '<span class="dc-badge dc-b-ok">Confirmed</span>' : '<span class="dc-badge dc-b-off">Pending</span>'; }
@@ -1213,7 +1264,7 @@ function tsCriteriaText(s) {
   if (m.indexOf('TEST') !== -1) out.push('แบบทดสอบคะแนนเต็ม ' + (s.FullScore || '____') + ' คะแนน ต้องได้ไม่น้อยกว่า ' + (s.PassScore || '____') + ' คะแนน');
   if (m.indexOf('PRACTICAL') !== -1) {
     const lv = Number(s.MinLevel) || 3;
-    out.push('การลงมือปฏิบัติต้องถึงระดับ ' + tsLevelMark(lv) + ' (' + (lv * 25) + '%) ' + (TS_LEVEL_TH[lv - 1] || ''));
+    out.push('การลงมือปฏิบัติต้องถึงระดับ ' + tsLevelMark(lv) + ' (' + (lv * 25) + '%) ' + (TS_LEVEL_TH[lv] || ''));
   }
   return out.length ? out.join('  ·  ') : '—';
 }
@@ -1379,7 +1430,7 @@ const TrainingSession = {
           <div class="dc-field dc-span2"><label>วิธีประเมินผล <span class="dc-req">*</span> <span class="dc-faint" style="font-weight:400;font-size:11.5px">(เลือกได้หลายวิธี)</span></label>
             <div style="padding:4px 0">${TS_METHODS.map(chk).join('')}</div></div>
           <div class="dc-field"><label>เวลาเข้าอบรมขั้นต่ำ (%)</label><input type="number" min="0" max="100" step="1" class="dc-in" id="tsPct" value="${ed ? trnEsc(s.MinAttendPct) : 100}"></div>
-          <div class="dc-field"><label>ระดับปฏิบัติที่ถือว่าผ่าน</label><select class="dc-in" id="tsLv">${[1, 2, 3, 4].map(n => `<option value="${n}" ${Number(ed ? s.MinLevel : 3) === n ? 'selected' : ''}>${TS_LEVEL_MARKS[n - 1]} ${n * 25}% — ${TS_LEVEL_TH[n - 1]}</option>`).join('')}</select></div>
+          <div class="dc-field"><label>ระดับปฏิบัติที่ถือว่าผ่าน</label><select class="dc-in" id="tsLv">${[1, 2, 3, 4].map(n => `<option value="${n}" ${Number(ed ? s.MinLevel : 3) === n ? 'selected' : ''}>${TS_LEVEL_MARKS[n - 1]} ${n * 25}% — ${TS_LEVEL_TH[n]}</option>`).join('')}</select></div>
           <div class="dc-field"><label>คะแนนเต็ม</label><input type="number" min="0" step="1" class="dc-in" id="tsFull" value="${g('FullScore')}"></div>
           <div class="dc-field"><label>คะแนนผ่าน</label><input type="number" min="0" step="1" class="dc-in" id="tsPass" value="${g('PassScore')}"></div>
           <div class="dc-field dc-span2"><label>หมายเหตุ</label><input class="dc-in" id="tsRmk" value="${g('Remark')}"></div>
@@ -1569,8 +1620,8 @@ const TrainingSession = {
     c.querySelectorAll('[data-unconfirm]').forEach(b => b.addEventListener('click', ev => this.run('unconfirmTrainingSessionDept', { sessionId: s.SessionID, dept: b.dataset.unconfirm }, 'เปิดรายชื่อให้แก้ไขแล้ว', ev.currentTarget)));
     c.querySelectorAll('[data-rmdept]').forEach(b => b.addEventListener('click', ev => this.run('removeTrainingSessionDept', { sessionId: s.SessionID, dept: b.dataset.rmdept }, 'ลบฝ่ายแล้ว', ev.currentTarget)));
     c.querySelectorAll('[data-rmatt]').forEach(b => b.addEventListener('click', ev => this.run('removeTrainingSessionAttendee', { attendeeId: b.dataset.rmatt }, 'ลบรายชื่อแล้ว', ev.currentTarget)));
-    c.querySelectorAll('[data-print6]').forEach(b => b.addEventListener('click', () => this.printAssign(b.dataset.print6)));
-    c.querySelectorAll('[data-card]').forEach(b => b.addEventListener('click', () => this.printHistoryCard(b.dataset.card)));
+    c.querySelectorAll('[data-print6]').forEach(b => b.addEventListener('click', ev => trnBusy(ev.currentTarget, '⏳', () => this.printAssign(b.dataset.print6))));
+    c.querySelectorAll('[data-card]').forEach(b => b.addEventListener('click', ev => trnBusy(ev.currentTarget, '⏳', () => this.printHistoryCard(b.dataset.card))));
   },
 
   onAction(a, bt) {
@@ -1591,8 +1642,10 @@ const TrainingSession = {
     if (a === 'reopenClosed') return this.reasonModal('Reopen closed session', 'reopenTrainingSession', { sessionId: id }, false);
     if (a === 'postpone') return this.reasonModal('Postpone this session', 'postponeTrainingSession', { sessionId: id }, true);
     if (a === 'cancel') return this.reasonModal('Cancel this session', 'cancelTrainingSession', { sessionId: id }, false);
-    if (a === 'printAssign') return this.printAssign('');
-    if (a === 'printExtReq') return this.printExtReq();
+    // พิมพ์ต้องดึงโลโก้ + ข้อมูลจากเซิร์ฟเวอร์ก่อน ระหว่างนั้นปุ่มต้องบอกว่ากำลังทำงาน
+    // และกดซ้ำไม่ได้ ไม่งั้นจะได้เอกสารซ้อนกันหลายใบ
+    if (a === 'printAssign') return trnBusy(bt, '⏳ กำลังเตรียม…', () => this.printAssign(''));
+    if (a === 'printExtReq') return trnBusy(bt, '⏳ กำลังเตรียม…', () => this.printExtReq());
     if (a === 'printRegister') return this.printRegister();
   },
 
@@ -2252,23 +2305,29 @@ function tsBand(score) {
  * (ตัวอักษร ●◕◑◔ มาจากคนละบล็อกในฟอนต์ ขนาดจึงไม่เท่ากัน และบางเครื่องขึ้นเป็น □)
  */
 function tsLevelIcon(lv, px) {
-  const s = px || 16, n = Number(lv) || 0;
+  const s = px || 16, n = Math.max(0, Math.min(4, Number(lv) || 0));
+  // quadrants fill clockwise from 12 o'clock, exactly as FM-HR-01 draws them
   const wedge = {
     1: 'M8,8 L8,2 A6,6 0 0,1 14,8 Z',
     2: 'M8,8 L8,2 A6,6 0 0,1 8,14 Z',
     3: 'M8,8 L8,2 A6,6 0 1,1 2,8 Z'
   };
-  const fill = n >= 4 ? '<circle cx="8" cy="8" r="6" fill="currentColor"/>'
-    : (wedge[n] ? `<path d="${wedge[n]}" fill="currentColor"/>` : '');
+  // cross first (shows through the empty quadrants), then the fill with a white edge so the
+  // cross stays visible over it, then the outline on top so the circle edge stays crisp
+  const fill = n >= 4
+    ? '<circle cx="8" cy="8" r="6" fill="currentColor"/>'
+    : (wedge[n] ? `<path d="${wedge[n]}" fill="currentColor" stroke="#fff" stroke-width="1.1"/>` : '');
   return `<svg viewBox="0 0 16 16" width="${s}" height="${s}" style="vertical-align:-2px" aria-hidden="true">
-    <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.2"/>${fill}</svg>`;
+    <path d="M8,2 V14 M2,8 H14" stroke="currentColor" stroke-width="1.1" fill="none"/>
+    ${fill}
+    <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.1"/></svg>`;
 }
 
 function tsLevelCell(score) {
   const b = tsBand(score);
   if (b.skill === '') return '<span class="dc-faint">—</span>';
-  if (!b.level) return `<span class="dc-faint" title="ยังไม่ถึงระดับ ${tsLevelIcon(1, 12)}">— ${b.skill}%</span>`;
-  return `${tsLevelIcon(b.level, 16)} <span class="dc-faint" style="font-size:11px">${b.skill}%</span>`;
+  return `<span title="${trnEsc(TS_LEVEL_TH[b.level] || '')}">${tsLevelIcon(b.level, 16)}</span>
+    <span class="dc-faint" style="font-size:11px">${b.skill}%</span>`;
 }
 
 function tsResultTh(r) {
