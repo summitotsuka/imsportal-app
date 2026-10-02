@@ -766,7 +766,14 @@ const TrainingPlan = {
     const d = this.data || {};
     const ids = d.deptScope === 'ALL' ? Object.keys(Training.deptMap) : (d.deptList || []);
     if (!ids.length) return '<span class="dc-faint" style="color:#9ca3af;font-size:12.5px">No department available</span>';
-    return `<select class="dc-in" id="tpDept" style="width:auto">${ids.map(id => `<option value="${trnEsc(id)}" ${String(d.dept) === id ? 'selected' : ''}>${trnEsc(Training.deptMap[id] || id)}</option>`).join('')}</select>`;
+    // Someone who may pick ANY department starts with nothing selected. Without this placeholder the
+    // browser shows the first department as if it were chosen, while the page stays empty and the
+    // Create button never appears — it looks broken when it is only waiting for a choice.
+    const none = !String(d.dept || '').trim();
+    return `<select class="dc-in" id="tpDept" style="width:auto">
+      ${none ? '<option value="">— เลือกฝ่าย —</option>' : ''}
+      ${ids.map(id => `<option value="${trnEsc(id)}" ${String(d.dept) === id ? 'selected' : ''}>${trnEsc(Training.deptMap[id] || id)}</option>`).join('')}
+    </select>${none ? ' <span class="dc-faint" style="font-size:12px;color:#9ca3af">เลือกฝ่ายก่อนจึงจะสร้างแผน OJT ได้</span>' : ''}`;
   },
 
   revBar() {
@@ -2505,7 +2512,7 @@ function obLevelOf(score) {
 const OB_LEVEL_TH = ['—', 'ต้องปรับปรุง', 'พอใช้', 'ปานกลาง (ผ่าน)', 'ดี (ผ่าน)'];
 
 const JobObservation = {
-  token() { return localStorage.getItem('sessionToken') || ''; },
+  token() { return AUTH.getToken(); },
   toast(m) { const t = document.getElementById('dcToast'); if (!t) return; t.textContent = m; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 2200); },
 
   _status: '', _mine: true, _q: '', _id: '',
