@@ -357,111 +357,64 @@ function setCurrentUser(user) {
 
 
 function navigateTo(page) {
-
   document
     .querySelectorAll(
       '.nav-item, .nav-subitem'
     )
     .forEach(item => {
-
       item.classList.toggle(
         'active',
         item.dataset.page === page
       );
-
     });
-
-
   switch (page) {
-
     case 'dashboard':
-
       loadDashboard();
-
-      break;
-
-
+      break;     
     case 'users':
-
       loadUsers();
-
       break;
-
-
     case 'documents':
     case 'documents-activities':
-
       loadDocuments();
-
       break;
-
     case 'documents-dashboard':
-
       loadDcDashboard();
-
       break;
-
     case 'documents-reports':
-
       loadDcReports();
-
       break;
-
     case 'tqis':
     case 'tqis-activities':
-
       loadTqis();
-
       break;
-
     case 'tqis-dashboard':
-
       loadTqisDashboard();
-
       break;
-
     case 'tqis-reports':
-
       loadTqisReports();
-
       break;
-
     case 'training-courses':
-
       loadTrainingCourses();
-
       break;
-
     case 'training-records':
-
       loadTrainingRecords();
-
       break;
-
     case 'training-needs':
-
       loadTrainingNeeds();
-
       break;
-
     case 'training-plan':
-
       loadTrainingPlan();
-
       break;
-
     case 'training-ojt':
-
       loadOjtPlan();
-
       break;
-
     case 'training-sessions':
-
       loadTrainingSessions();
-
       break;
-
+    case 'training-observation':
+      loadJobObservations();
+      break;
 
     default:
 
