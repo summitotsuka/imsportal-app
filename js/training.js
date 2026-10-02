@@ -884,7 +884,7 @@ const TrainingPlan = {
       if (t !== lastType) { lastType = t; head = `<tr><td colspan="${cols}" style="background:#f3f4f6;font-weight:700;font-size:12px">${trnEsc(tpTypeLabel(t))}</td></tr>`; }
       return head + `<tr>
         <td class="dc-faint">${o.No}</td>
-        <td>${trnEsc(o.Subject)}${o.SourceNeedID ? ' <span class="dc-faint" style="font-size:10px">(from need)</span>' : ''}</td>
+        <td${String(o.ItemKind || '').toUpperCase() === 'OBSERVATION' ? ' style="padding-left:22px;color:#4b5563"' : ''}>${String(o.ItemKind || '').toUpperCase() === 'OBSERVATION' ? '↳ ' : ''}${trnEsc(o.Subject)}${o.SourceNeedID ? ' <span class="dc-faint" style="font-size:10px">(from need)</span>' : ''}</td>
         <td>${trnEsc(this.deptName(o.DepartmentID))}</td>
         <td class="dc-faint" style="font-size:11.5px">${trnEsc(tnGroupsText(o.Groups))}</td>
         <td class="dc-faint">${trnEsc(o.Times)}</td>
@@ -952,12 +952,13 @@ const TrainingPlan = {
     });
   },
 
-  weeksGrid(pw) {
+  weeksGrid(pw, cls) {
     const set = {}; tpWeeks(pw).forEach(k => set[k] = 1);
+    const c = cls || 'tpWk';
     let rows = '';
     for (let m = 1; m <= 12; m++) {
       let cells = '';
-      for (let w = 1; w <= 4; w++) { const k = m + '-' + w; cells += `<td style="text-align:center"><input type="checkbox" class="tpWk" value="${k}" ${set[k] ? 'checked' : ''}></td>`; }
+      for (let w = 1; w <= 4; w++) { const k = m + '-' + w; cells += `<td style="text-align:center"><input type="checkbox" class="${c}" value="${k}" ${set[k] ? 'checked' : ''}></td>`; }
       rows += `<tr><td style="font-size:11px;padding-right:6px">${TP_MONTHS[m - 1]}</td>${cells}</tr>`;
     }
     return `<table style="border-collapse:collapse;font-size:11px"><thead><tr><th></th><th>W1</th><th>W2</th><th>W3</th><th>W4</th></tr></thead><tbody>${rows}</tbody></table>`;
@@ -965,6 +966,8 @@ const TrainingPlan = {
 
   itemForm(existing) {
     const ed = !!existing, p = this.data.plan, ojt = this.isOjt();
+    // the FM-HR-17 line paired with this item, if it already has one
+    const obsPair = ed ? (this.data.items || []).filter(x => String(x.ObserveOfItemID || '') === String(existing.ItemID))[0] : null;
     const g = k => ed ? trnEsc(existing[k] || '') : '';
     const groupOpts = this.data.participantGroups || [];
     const chosen = ed ? tnGroupList(String(existing.Groups || '').toUpperCase()) : [];
@@ -990,6 +993,21 @@ const TrainingPlan = {
         <div class="dc-field"><label>Headcount <span class="dc-req">*</span></label><input type="number" min="1" class="dc-in" id="tpiHead" value="${g('Headcount')}"></div>
         <div class="dc-field"><label>Budget ${ojt ? '<span class="dc-muted" style="font-weight:400;font-size:11px">(optional)</span>' : '<span class="dc-req">*</span>'}</label><input type="number" min="0" step="0.01" class="dc-in" id="tpiBudget" value="${g('Budget')}"></div>
         <div class="dc-field dc-span2"><label>Schedule (month × week) <span class="dc-req">*</span></label>${this.weeksGrid(ed ? existing.PlanWeeks : '')}</div>
+        <div class="dc-field dc-span2" style="border-top:1px solid #e5e7eb;padding-top:10px">
+          <label style="display:inline-flex;align-items:center;gap:6px;font-weight:600">
+            <input type="checkbox" id="tpiObs" ${obsPair ? 'checked' : ''}> ต้องติดตามการปฏิบัติงาน (FM-HR-17)</label>
+          <div class="dc-faint" style="font-size:11.5px;margin-top:2px">ระบบจะเพิ่มบรรทัดติดตามคู่กับหลักสูตรนี้ในแผน และออกใบ FM-HR-17 ให้ทุกคนที่อบรมหลักสูตรนี้เป็นครั้งแรก</div>
+          <div id="tpiObsBox" style="display:${obsPair ? 'block' : 'none'};margin-top:10px;padding-left:20px;border-left:3px solid #e5e7eb">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <div class="dc-field" style="margin:0"><label>ตรวจหลังอบรม (วัน)</label>
+                <input type="number" min="1" class="dc-in" id="tpiObsDays" value="${obsPair ? trnEsc(obsPair.ObserveAfterDays || '') : ''}" placeholder="เว้นว่าง = ตามค่าเริ่มต้น"></div>
+              <div class="dc-field" style="margin:0"><label>ชุดหัวข้อตรวจ</label>
+                <select class="dc-in" id="tpiObsSet"><option value="">— ชุดเริ่มต้น —</option></select></div>
+            </div>
+            <div class="dc-field" style="margin:10px 0 0"><label>สัปดาห์ที่จะไปตรวจติดตาม <span class="dc-req">*</span></label>
+              ${this.weeksGrid(obsPair ? obsPair.PlanWeeks : '', 'tpOw')}</div>
+          </div>
+        </div>
         <div class="dc-field dc-span2"><label>Remark</label><input class="dc-in" id="tpiRemark" value="${g('Remark')}"></div>
       </div>
       <div id="tpiErr"></div><div class="dc-bar"><button class="dc-btn dc-ghost" id="tpiX" type="button">Cancel</button><button class="dc-btn dc-primary" id="tpiOk" type="button">${ed ? 'Save' : 'Add'}</button></div></div>`;
@@ -1005,6 +1023,27 @@ const TrainingPlan = {
       } else { subjEl.readOnly = false; typeEl.disabled = false; }
     };
     courseEl.addEventListener('change', syncCourse); syncCourse();
+
+    const obsCb = scrim.querySelector('#tpiObs'), obsBox = scrim.querySelector('#tpiObsBox');
+    obsCb.addEventListener('change', () => { obsBox.style.display = obsCb.checked ? 'block' : 'none'; });
+    (async () => {
+      try {
+        if (!TrainingPlan._obsSets) {
+          const r = await API.get('getObservationSets', { token: this.token() });
+          TrainingPlan._obsSets = r.sets || [];
+        }
+        const sel = scrim.querySelector('#tpiObsSet');
+        if (!sel) return;
+        const cur = obsPair ? String(obsPair.ObsSetID || '') : '';
+        TrainingPlan._obsSets.forEach(x => {
+          const o = document.createElement('option');
+          o.value = x.setId; o.textContent = x.setName + ' (' + x.items + ' ข้อ)';
+          if (cur === x.setId) o.selected = true;
+          sel.appendChild(o);
+        });
+      } catch (e) { /* the plan still works without the set list */ }
+    })();
+
     const close = () => scrim.remove();
     scrim.querySelector('#tpiX').addEventListener('click', close);
     scrim.querySelector('#tpiOk').addEventListener('click', () => {
@@ -1024,7 +1063,11 @@ const TrainingPlan = {
       else if (budget === '' || !(Number(budget) >= 0)) miss.push('Budget');
       if (!weeks) miss.push('Schedule');
       if (miss.length) { scrim.querySelector('#tpiErr').innerHTML = `<div class="dc-err">Please fill: ${miss.join(', ')}</div>`; return; }
-      const payload = { token: this.token(), CourseID: v('tpiCourse') || '', Subject: subject, TrainingType: ojt ? 'OJT' : v('tpiType'), DepartmentID: v('tpiDept'), Groups: groups, Times: v('tpiTimes'), PeriodHours: v('tpiHours'), Headcount: v('tpiHead'), Budget: budget, PlanWeeks: weeks, Remark: (v('tpiRemark') || '').trim() };
+      const obsOn = scrim.querySelector('#tpiObs').checked;
+      const obsWeeks = Array.prototype.slice.call(scrim.querySelectorAll('.tpOw')).filter(x => x.checked).map(x => x.value).join(',');
+      if (obsOn && !obsWeeks) { scrim.querySelector('#tpiErr').innerHTML = '<div class="dc-err">เลือกสัปดาห์ที่จะไปตรวจติดตาม (FM-HR-17) ด้วยครับ</div>'; return; }
+      const payload = { token: this.token(), CourseID: v('tpiCourse') || '', Subject: subject, TrainingType: ojt ? 'OJT' : v('tpiType'), DepartmentID: v('tpiDept'), Groups: groups, Times: v('tpiTimes'), PeriodHours: v('tpiHours'), Headcount: v('tpiHead'), Budget: budget, PlanWeeks: weeks, Remark: (v('tpiRemark') || '').trim(),
+        Observe: obsOn ? 'on' : '', ObservePlanWeeks: obsWeeks, ObserveAfterDays: v('tpiObsDays') || '', ObsSetID: v('tpiObsSet') || '' };
       const ok = scrim.querySelector('#tpiOk'); ok.disabled = true; ok.textContent = 'Processing…';
       const req = ed ? API.post('updateTrainingPlanItem', Object.assign({ itemId: existing.ItemID }, payload)) : API.post('addTrainingPlanItem', Object.assign({ planId: p.PlanID }, payload));
       req.then(() => { close(); this.toast(ed ? 'Item saved' : 'Item added'); this.load(this._year, this._rev); })
@@ -1157,7 +1200,8 @@ const TrainingPlan = {
       const t = String(o.TrainingType || '').toUpperCase();
       let head = '';
       if (t !== lastType) { lastType = t; head = `<tr><td colspan="55" class="gh">${trnEsc(tpTypeLabel(t))}</td></tr>`; }
-      return head + `<tr><td rowspan="2" class="c">${o.No}</td><td rowspan="2" class="sub">${trnEsc(o.Subject)}</td>
+      const isObs = String(o.ItemKind || '').toUpperCase() === 'OBSERVATION';
+      return head + `<tr><td rowspan="2" class="c">${o.No}</td><td rowspan="2" class="sub${isObs ? ' obs' : ''}">${isObs ? '↳ ' : ''}${trnEsc(o.Subject)}</td>
         <td rowspan="2" class="c">${trnEsc(o.Times)}</td><td rowspan="2" class="c">${trnEsc(o.PeriodHours)}</td>
         <td class="pa">Plan</td>${planCells}<td rowspan="2" class="grp">${trnEsc(tnGroupsCheck(o.Groups))}</td><td rowspan="2" class="rmk">${trnEsc(o.Remark)}</td></tr>
         <tr><td class="pa">Actual</td>${actualCells}</tr>`;
@@ -1174,6 +1218,7 @@ const TrainingPlan = {
       .p4 .day{display:inline-block;min-width:12px;height:12px;line-height:11px;border:1px solid #000;border-radius:50%;
         font-size:7px;font-weight:700;text-align:center;margin:0 .5px;padding:0 1px}
       .p4 td.pa{font-size:7.5px;white-space:nowrap}.p4 .sub{min-width:150px}
+      .p4 .sub.obs{padding-left:10px;font-style:italic}
       .p4 .gh{background:#e8e8e8;font-weight:700;font-size:9px;text-align:left}
       .p4 .grp{min-width:74px;font-size:8px;white-space:normal}.p4 .rmk{min-width:70px}.p4 .foot td{height:16px}
     </style>
@@ -2432,3 +2477,352 @@ function tsRegStyle() {
 }
 
 function loadTrainingSessions() { TrainingSession._logo = undefined; TrainingSession._id = ''; TrainingSession._res = null; TrainingSession.load(); }
+
+/* ==================== FM-HR-17 ติดตามการปฏิบัติงาน (JOB OBSERVATION) — Phase 5 ====================
+   A sheet belongs to ONE employee and ONE course. Each observation round is one column on the form,
+   so the whole history of "did they get it right yet" sits on a single page.                      */
+
+const OB_STATUS = {
+  PENDING: ['รอตรวจ', 'dc-b-off'],
+  IN_PROGRESS: ['ตรวจแล้ว ยังไม่ผ่าน', 'dc-b-warn'],
+  PASSED: ['ผ่าน', 'dc-b-ok'],
+  APPROVED: ['อนุมัติแล้ว', 'dc-b-ok'],
+  RETRAIN: ['ส่งอบรมใหม่', 'dc-b-err'],
+  CANCELLED: ['ยกเลิก', 'dc-b-off']
+};
+function obBadge(st) { const m = OB_STATUS[String(st || '').toUpperCase()] || [st || '—', 'dc-b-off']; return `<span class="dc-badge ${m[1]}">${m[0]}</span>`; }
+
+/** FM-HR-17 has its own bands — NOT the FM-HR-01 ones. 76+ ดี · 51+ ปานกลาง (ผ่าน) · 26+ พอใช้ · 1+ ต้องปรับปรุง */
+function obLevelOf(score) {
+  const n = Number(score);
+  if (isNaN(n)) return 0;
+  if (n >= 76) return 4;
+  if (n >= 51) return 3;
+  if (n >= 26) return 2;
+  if (n >= 1) return 1;
+  return 0;
+}
+const OB_LEVEL_TH = ['—', 'ต้องปรับปรุง', 'พอใช้', 'ปานกลาง (ผ่าน)', 'ดี (ผ่าน)'];
+
+const JobObservation = {
+  token() { return localStorage.getItem('sessionToken') || ''; },
+  toast(m) { const t = document.getElementById('dcToast'); if (!t) return; t.textContent = m; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 2200); },
+
+  _status: '', _mine: true, _q: '', _id: '',
+
+  async load() {
+    const c = document.getElementById('pageContent');
+    c.innerHTML = '<div class="dc-wrap"><p class="dc-faint">กำลังโหลด…</p></div>';
+    try {
+      this.data = await API.get('getObservations', {
+        token: this.token(), status: this._status, mine: this._mine ? 'YES' : '', q: this._q
+      });
+    } catch (ex) {
+      c.innerHTML = `<div class="dc-wrap"><div class="dc-err">${trnEsc((ex && ex.message) || 'โหลดไม่สำเร็จ')}</div></div>`;
+      return;
+    }
+    this.render();
+  },
+
+  render() {
+    const d = this.data, rows = d.observations || [];
+    const stOpts = '<option value="">ทุกสถานะ</option>' + Object.keys(OB_STATUS)
+      .map(k => `<option value="${k}" ${this._status === k ? 'selected' : ''}>${OB_STATUS[k][0]}</option>`).join('');
+
+    const body = rows.map(o => `<tr data-id="${trnEsc(o.obsId)}" style="cursor:pointer">
+      <td><span class="dc-id">${trnEsc(o.employeeId)}</span></td>
+      <td>${trnEsc(o.employeeName)}<div class="dc-faint" style="font-size:11px">${trnEsc(Training.deptName(o.departmentId))}${o.position ? ' · ' + trnEsc(o.position) : ''}</div></td>
+      <td>${trnEsc(o.courseName)}</td>
+      <td class="dc-faint">${trnEsc(trnDate(o.dueDate))}${o.overdue ? ' <span style="color:#b91c1c;font-weight:600">เลยกำหนด</span>' : ''}</td>
+      <td>${obBadge(o.status)}</td>
+      <td class="dc-faint">${o.rounds ? o.rounds + ' ครั้ง' : '—'}</td>
+      <td>${o.lastScore === '' ? '<span class="dc-faint">—</span>' : `${tsLevelIcon(obLevelOf(o.lastScore), 15)} ${o.lastScore}`}</td>
+    </tr>`).join('');
+
+    const c = document.getElementById('pageContent');
+    c.innerHTML = `<div class="dc-wrap">
+      <div class="dc-ph"><div>
+        <h1 style="margin:0;font-size:22px">ติดตามการปฏิบัติงาน</h1>
+        <p class="dc-muted" style="margin:4px 0 0">FM-HR-17 JOB OBSERVATION — ตรวจหลังการอบรมครั้งแรก</p>
+      </div></div>
+      <div class="dc-bar" style="margin:10px 0;flex-wrap:wrap;gap:8px">
+        <select class="dc-in" id="obSt" style="width:auto">${stOpts}</select>
+        <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px">
+          <input type="checkbox" id="obMine" ${this._mine ? 'checked' : ''}> เฉพาะที่ฉันต้องตรวจ</label>
+        <input class="dc-in" id="obQ" placeholder="ค้นหาชื่อ / รหัส / หลักสูตร" value="${trnEsc(this._q)}" style="width:240px">
+        <button class="dc-btn dc-ghost" id="obGo" type="button">ค้นหา</button>
+      </div>
+      <div class="dc-card">
+        ${rows.length ? `<table class="dc-tbl"><thead><tr><th style="width:90px">รหัส</th><th>พนักงาน</th><th>หลักสูตร</th>
+          <th style="width:130px">ครบกำหนด</th><th style="width:130px">สถานะ</th><th style="width:80px">ตรวจแล้ว</th><th style="width:110px">คะแนนล่าสุด</th></tr></thead>
+          <tbody>${body}</tbody></table>`
+        : '<p class="dc-faint" style="padding:10px;color:#9ca3af">ไม่มีใบติดตามที่ตรงกับเงื่อนไข</p>'}
+      </div>
+    </div><div class="dc-toast" id="dcToast"></div>`;
+
+    const go = () => {
+      this._status = document.getElementById('obSt').value;
+      this._mine = document.getElementById('obMine').checked;
+      this._q = document.getElementById('obQ').value.trim();
+      this.load();
+    };
+    document.getElementById('obGo').addEventListener('click', go);
+    document.getElementById('obSt').addEventListener('change', go);
+    document.getElementById('obMine').addEventListener('change', go);
+    document.getElementById('obQ').addEventListener('keydown', ev => { if (ev.key === 'Enter') go(); });
+    c.querySelectorAll('[data-id]').forEach(tr => tr.addEventListener('click', () => this.openDetail(tr.dataset.id)));
+  },
+
+  async openDetail(obsId) {
+    this._id = obsId;
+    const c = document.getElementById('pageContent');
+    c.innerHTML = '<div class="dc-wrap"><p class="dc-faint">กำลังโหลด…</p></div>';
+    try { this.detail = await API.get('getObservation', { token: this.token(), obsId }); }
+    catch (ex) {
+      c.innerHTML = `<div class="dc-wrap"><button class="dc-back" id="obBack">← กลับ</button><div class="dc-err">${trnEsc((ex && ex.message) || 'โหลดไม่สำเร็จ')}</div></div>`;
+      const b = document.getElementById('obBack'); if (b) b.addEventListener('click', () => this.load());
+      return;
+    }
+    this.renderDetail();
+  },
+
+  renderDetail() {
+    const d = this.detail, o = d.observation, items = d.items || [], rounds = d.rounds || [];
+    const has = a => (d.actions || []).indexOf(a) !== -1;
+    const canObserve = has('observe') || has('observeAgain');
+
+    const roundHead = rounds.map(r => `<th class="ob-col">${trnEsc(trnDate(r.obsDate))}<div class="dc-faint" style="font-weight:400;font-size:10px">${trnEsc(r.observerName)}</div></th>`).join('');
+    const itemRows = items.map((it, i) => {
+      const past = rounds.map(r => {
+        const m = r.marks.charAt(i);
+        return `<td class="ob-c">${m === '1' ? '✔' : (m === '0' ? '<span style="color:#b91c1c">✘</span>' : '')}</td>`;
+      }).join('');
+      return `<tr>
+        <td class="ob-c dc-faint">${it.itemNo}</td>
+        <td>${trnEsc(it.subject)}${it.critical ? ' <span class="dc-badge dc-b-err" style="font-size:10px">ควบคุมพิเศษ</span>' : ''}</td>
+        ${past}
+        ${canObserve ? `<td class="ob-c"><input type="checkbox" class="obMark" data-i="${i}" checked></td>` : ''}
+      </tr>`;
+    }).join('');
+
+    const resultRow = `<tr style="background:#f9fafb;font-weight:600">
+      <td colspan="2" style="text-align:right">ผลประเมิน</td>
+      ${rounds.map(r => `<td class="ob-c">${tsLevelIcon(r.level, 18)}<div style="font-size:10px;font-weight:400">${r.score} · ${r.result === 'PASS' ? 'ผ่าน' : 'ไม่ผ่าน'}</div></td>`).join('')}
+      ${canObserve ? '<td class="ob-c" id="obLive"></td>' : ''}</tr>`;
+
+    const bar = [];
+    if (canObserve) bar.push('<button class="dc-btn dc-primary" id="obSave" type="button">บันทึกผลตรวจ</button>');
+    if (has('approve')) bar.push('<button class="dc-btn dc-primary" id="obApprove" type="button">อนุมัติ (ผู้จัดการฝ่าย)</button>');
+    if (has('retrain')) bar.push('<button class="dc-btn dc-ghost" id="obRetrain" type="button">ส่งกลับไปอบรมใหม่</button>');
+    if (has('cancel')) bar.push('<button class="dc-btn dc-ghost" id="obCancel" type="button">ยกเลิกใบนี้</button>');
+    if (has('print')) bar.push('<button class="dc-btn dc-ghost" id="obPrint" type="button">พิมพ์ FM-HR-17</button>');
+
+    const setOpts = (JobObservation._sets || []).map(x => `<option value="${trnEsc(x.setId)}" ${x.setId === o.setId ? 'selected' : ''}>${trnEsc(x.setName)}</option>`).join('');
+
+    const c = document.getElementById('pageContent');
+    c.innerHTML = `<div class="dc-wrap"><button class="dc-back" id="obBack">← กลับไปรายการ</button>
+      <div class="dc-ph" style="margin-bottom:12px"><div>
+        <h1 style="margin:0;font-size:22px">${trnEsc(o.employeeName)} <span class="dc-faint" style="font-size:14px">${trnEsc(o.employeeId)}</span></h1>
+        <p class="dc-muted" style="margin:4px 0 0">${trnEsc(o.courseName)} &nbsp; ${obBadge(o.status)}</p>
+      </div></div>
+
+      <div class="dc-card" style="margin-bottom:12px">
+        <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px">
+          <div class="dc-field" style="margin:0"><label>แผนก / ตำแหน่ง</label>
+            <div style="padding:6px 0;font-size:13px">${trnEsc(Training.deptName(o.departmentId))}${o.position ? ' · ' + trnEsc(o.position) : ''}</div></div>
+          <div class="dc-field" style="margin:0"><label>MODEL / ไลน์ผลิต</label>
+            <input class="dc-in" id="obModel" value="${trnEsc(o.model)}" ${canObserve ? '' : 'disabled'}></div>
+          <div class="dc-field" style="margin:0"><label>ผู้รับผิดชอบ</label>
+            <select class="dc-in" id="obResp" ${canObserve ? '' : 'disabled'}>
+              <option value="DIRECT" ${o.responsibility === 'DIRECT' ? 'selected' : ''}>โดยตรง</option>
+              <option value="INDIRECT" ${o.responsibility === 'INDIRECT' ? 'selected' : ''}>โดยอ้อม</option></select></div>
+          <div class="dc-field" style="margin:0"><label>ชุดหัวข้อตรวจ</label>
+            <select class="dc-in" id="obSet" ${canObserve ? '' : 'disabled'}>${setOpts || `<option>${trnEsc(o.setId)}</option>`}</select></div>
+        </div>
+        <div class="dc-faint" style="margin-top:8px;font-size:12.5px">
+          ครบกำหนดตรวจ <b>${trnEsc(trnDate(o.dueDate))}</b> &nbsp;·&nbsp; เกณฑ์ผ่าน <b>${o.passScore} คะแนน</b>
+          &nbsp;·&nbsp; ออกใบโดย ${trnEsc(o.issuedByName)} ${o.issuedDate ? trnEsc(trnDate(o.issuedDate)) : ''}
+          ${o.approvedByName ? ' &nbsp;·&nbsp; อนุมัติโดย ' + trnEsc(o.approvedByName) + ' ' + trnEsc(trnDate(o.approvedDate)) : ''}
+        </div>
+        ${o.remark ? `<div class="dc-err" style="margin-top:8px">${trnEsc(o.remark)}</div>` : ''}
+      </div>
+
+      ${canObserve ? `<div class="dc-bar" style="margin-bottom:8px;flex-wrap:wrap;gap:8px">
+        <label style="font-size:13px">วันที่ตรวจ <input type="date" class="dc-in" id="obDate" value="${trnEsc(trnYmdToday())}" style="width:auto"></label>
+        <button class="dc-btn dc-ghost dc-sm" id="obAll" type="button">✔ ผ่านทุกข้อ</button>
+        <button class="dc-btn dc-ghost dc-sm" id="obNone" type="button">ล้างทั้งหมด</button>
+        <input class="dc-in" id="obRemark" placeholder="หมายเหตุของการตรวจครั้งนี้" style="flex:1;min-width:200px">
+      </div>` : ''}
+
+      <div class="dc-card" style="overflow-x:auto">
+        <table class="dc-tbl ob-grid"><thead><tr>
+          <th style="width:36px">ข้อ</th><th>หัวข้อการตรวจติดตาม</th>
+          ${roundHead}${canObserve ? '<th class="ob-col" style="background:#eef2ff">ครั้งนี้</th>' : ''}
+        </tr></thead><tbody>${itemRows}${resultRow}</tbody></table>
+      </div>
+
+      <div class="dc-card" style="margin-top:12px;font-size:12.5px;line-height:1.9">
+        <b>เกณฑ์การประเมินผล</b> — คะแนน = [ หัวข้อที่ผ่าน × 100 ] ÷ ${items.length} ข้อ<br>
+        ${[4, 3, 2, 1].map(l => `${tsLevelIcon(l, 15)} ${l === 4 ? '76–100' : l === 3 ? '51–75' : l === 2 ? '26–50' : '1–25'} คะแนน = ${OB_LEVEL_TH[l]}`).join(' &nbsp;·&nbsp; ')}<br>
+        <span class="dc-faint">หัวข้อที่ทำเครื่องหมาย "ควบคุมพิเศษ" ถ้าไม่ผ่าน จะถือว่าไม่ผ่านทั้งใบ แม้คะแนนรวมจะถึงเกณฑ์</span>
+      </div>
+
+      <div id="obErr"></div>
+      ${bar.length ? `<div class="dc-bar" style="margin-top:12px;flex-wrap:wrap">${bar.join('')}</div>` : ''}
+      <style>
+        .ob-grid th{font-size:11.5px;text-align:center;vertical-align:middle}
+        .ob-grid th:nth-child(2){text-align:left}
+        .ob-grid td.ob-c{text-align:center}
+        .ob-grid th.ob-col{width:88px}
+        .dc-sm{padding:3px 8px;font-size:11.5px}
+      </style>
+    </div><div class="dc-toast" id="dcToast"></div>`;
+
+    document.getElementById('obBack').addEventListener('click', () => this.load());
+    const bind = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
+    bind('obPrint', ev => trnBusy(ev.currentTarget, '⏳ กำลังเตรียม…', () => this.print()));
+    bind('obApprove', ev => this.run('approveObservation', {}, 'อนุมัติแล้ว', ev.currentTarget));
+    bind('obRetrain', () => this.reasonModal('ส่งกลับไปอบรมใหม่', 'retrainObservation'));
+    bind('obCancel', () => this.reasonModal('ยกเลิกใบติดตามนี้', 'cancelObservation'));
+
+    if (!canObserve) return;
+    const live = () => {
+      const marks = Array.from(c.querySelectorAll('.obMark')).map(x => x.checked ? '1' : '0').join('');
+      const passCount = marks.split('').filter(x => x === '1').length;
+      const score = Math.round((passCount / (marks.length || 1)) * 100);
+      const criticalFail = items.some((it, i) => it.critical && marks.charAt(i) === '0');
+      const lv = obLevelOf(score);
+      const pass = !criticalFail && score >= Number(o.passScore);
+      const el = document.getElementById('obLive');
+      if (el) el.innerHTML = `${tsLevelIcon(lv, 18)}<div style="font-size:10px;font-weight:400;color:${pass ? '#166534' : '#b91c1c'}">${score} · ${pass ? 'ผ่าน' : 'ไม่ผ่าน'}</div>`;
+    };
+    c.querySelectorAll('.obMark').forEach(x => x.addEventListener('change', live));
+    bind('obAll', () => { c.querySelectorAll('.obMark').forEach(x => { x.checked = true; }); live(); });
+    bind('obNone', () => { c.querySelectorAll('.obMark').forEach(x => { x.checked = false; }); live(); });
+    live();
+
+    bind('obSave', async ev => {
+      const bt = ev.currentTarget, prev = bt.textContent;
+      const marks = Array.from(c.querySelectorAll('.obMark')).map(x => x.checked ? '1' : '0').join('');
+      bt.disabled = true; bt.textContent = 'กำลังบันทึก…';
+      document.getElementById('obErr').innerHTML = '';
+      try {
+        await API.post('updateObservation', {
+          token: this.token(), obsId: this._id,
+          Model: document.getElementById('obModel').value,
+          Responsibility: document.getElementById('obResp').value,
+          SetID: document.getElementById('obSet').value || o.setId
+        });
+        const r = await API.post('saveObservationRound', {
+          token: this.token(), obsId: this._id, marks: marks,
+          obsDate: document.getElementById('obDate').value,
+          remark: document.getElementById('obRemark').value
+        });
+        this.toast((r && r.message) || 'บันทึกแล้ว');
+        this.openDetail(this._id);
+      } catch (ex) {
+        bt.disabled = false; bt.textContent = prev;
+        document.getElementById('obErr').innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'บันทึกไม่สำเร็จ')}</div>`;
+      }
+    });
+  },
+
+  async run(action, payload, okMsg, bt) {
+    let prev = ''; if (bt) { prev = bt.textContent; bt.disabled = true; bt.textContent = 'Processing…'; }
+    try { await API.post(action, Object.assign({ token: this.token(), obsId: this._id }, payload)); this.toast(okMsg); this.openDetail(this._id); }
+    catch (ex) {
+      if (bt) { bt.disabled = false; bt.textContent = prev; }
+      const e = document.getElementById('obErr');
+      if (e) e.innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'Failed')}</div>`; else this.toast((ex && ex.message) || 'Failed');
+    }
+  },
+
+  reasonModal(title, action) {
+    const scrim = document.createElement('div'); scrim.className = 'dc-scrim';
+    scrim.innerHTML = `<div class="dc-modal"><h3 style="margin:0 0 12px">${trnEsc(title)}</h3>
+      <label style="font-size:12.5px;font-weight:600;display:block;margin-bottom:4px">เหตุผล <span class="dc-req">*</span></label>
+      <textarea class="dc-in" id="obRm" rows="3"></textarea><div id="obRmErr"></div>
+      <div class="dc-bar"><button class="dc-btn dc-ghost" id="obRmX" type="button">ยกเลิก</button>
+        <button class="dc-btn dc-primary" id="obRmOk" type="button">ยืนยัน</button></div></div>`;
+    document.body.appendChild(scrim);
+    const close = () => scrim.remove();
+    scrim.querySelector('#obRmX').addEventListener('click', close);
+    scrim.querySelector('#obRmOk').addEventListener('click', () => {
+      const reason = scrim.querySelector('#obRm').value.trim();
+      if (!reason) { scrim.querySelector('#obRmErr').innerHTML = '<div class="dc-err">กรุณาระบุเหตุผล</div>'; return; }
+      const ok = scrim.querySelector('#obRmOk'); ok.disabled = true; ok.textContent = 'Processing…';
+      API.post(action, { token: this.token(), obsId: this._id, reason: reason, comment: reason })
+        .then(() => { close(); this.toast('เรียบร้อย'); this.openDetail(this._id); })
+        .catch(ex => { ok.disabled = false; ok.textContent = 'ยืนยัน'; scrim.querySelector('#obRmErr').innerHTML = `<div class="dc-err">${trnEsc((ex && ex.message) || 'Failed')}</div>`; });
+    });
+  },
+
+  /** FM-HR-17 — one sheet, every round as its own column, blank columns left for future rounds. */
+  async print() {
+    const d = await API.get('getObservationCard', { token: this.token(), obsId: this._id });
+    const o = d.observation, items = d.items || [], rounds = d.rounds || [];
+    const logo = await TrainingSession.ensureLogo();
+    const formNo = d.formNo || 'FM-HR-17';
+    const COLS = Math.max(10, rounds.length + 2);     // leave room to keep observing on paper
+
+    const head = Array.from({ length: COLS }).map((_, i) => {
+      const r = rounds[i];
+      return `<th class="ob">${r ? trnEsc(trnDate(r.obsDate)) : ''}</th>`;
+    }).join('');
+    const rows = items.map((it, i) => {
+      const cells = Array.from({ length: COLS }).map((_, k) => {
+        const r = rounds[k];
+        if (!r) return '<td class="ob"></td>';
+        return `<td class="ob">${r.marks.charAt(i) === '1' ? '✔' : '✘'}</td>`;
+      }).join('');
+      return `<tr><td class="c">${it.itemNo}</td><td class="sj">${trnEsc(it.subject)}</td><td class="c">หัวหน้างาน</td>${cells}</tr>`;
+    }).join('');
+    const resultCells = Array.from({ length: COLS }).map((_, k) => {
+      const r = rounds[k];
+      return `<td class="ob">${r ? tsLevelIcon(r.level, 15) : ''}</td>`;
+    }).join('');
+
+    const body = `<div class="pg">
+      ${TrainingSession.formHead(logo, 'แบบฟอร์มติดตามการปฏิบัติงาน', 'JOB OBSERVATION', formNo)}
+      ${TrainingSession.kvTable([
+        ['ชื่อ - สกุล', o.employeeName + '     รหัสพนักงาน ' + o.employeeId],
+        ['ตำแหน่ง / แผนก', (o.position || '-') + '     ' + Training.deptName(o.departmentId) + '     MODEL ' + (o.model || '-')],
+        ['หลักสูตรที่อบรม', o.courseName + '     ผู้รับผิดชอบ' + (o.responsibility === 'INDIRECT' ? 'โดยอ้อม' : 'โดยตรง') + '     เกณฑ์ผ่าน ' + o.passScore + ' คะแนน']
+      ])}
+      <table class="lst ob17"><thead><tr>
+        <th style="width:8mm">No.</th><th>SUBJECT</th><th style="width:20mm">ผู้ประเมิน</th>${head}
+      </tr></thead><tbody>${rows}
+        <tr class="res"><td colspan="3" style="text-align:right">ผลประเมิน</td>${resultCells}</tr>
+      </tbody></table>
+      <div class="note"><b>REMARK :</b> ผ่าน = ✔ &nbsp;&nbsp; ไม่ผ่าน = ✘ &nbsp;&nbsp;
+        <b>วิธีคิดคะแนน</b> [ จำนวนหัวข้อที่ประเมินผ่าน × 100 ] ÷ จำนวนหัวข้อที่ประเมินทั้งหมด ${items.length} ข้อ<br>
+        ${tsLevelIcon(1, 13)} 1–25 คะแนน ต้องปรับปรุง &nbsp;·&nbsp; ${tsLevelIcon(2, 13)} 26–50 คะแนน พอใช้ &nbsp;·&nbsp;
+        ${tsLevelIcon(3, 13)} 51–75 คะแนน ปานกลาง "ผ่าน" &nbsp;·&nbsp; ${tsLevelIcon(4, 13)} 76–100 คะแนน ดี "ผ่าน"<br>
+        <span style="font-size:9px">หัวข้อการตรวจสอบ FINAL CHECK · CRITICAL PROCESS · จุดควบคุมพิเศษ (SC PRODUCT) ต้องประเมินได้ 100% จึงถือว่า "ผ่าน" ·
+        หลักสูตรการปฏิบัติงานตาม WI ต้องทำได้ 100% สำหรับผู้รับผิดชอบโดยตรง และ 75% สำหรับผู้รับผิดชอบโดยอ้อม</span></div>
+      ${TrainingSession.signBox([
+        ['ISSUED BY', o.issuedByName || '', o.issuedDate ? trnDate(o.issuedDate) : ''],
+        ['CHECKED BY', o.checkedByName || '', o.checkedDate ? trnDate(o.checkedDate) : ''],
+        ['APPROVED BY', o.approvedByName || '', o.approvedDate ? trnDate(o.approvedDate) : '']
+      ])}
+    </div>`;
+    trnPrint(formNo.split(/\s+/)[0] + ' · ' + o.employeeId, 'size: A4 landscape; margin: 8mm;',
+      `<div class="fm">${body}</div>${TrainingSession.printStyle()}
+       <style>.fm .ob17 th,.fm .ob17 td{font-size:9px;padding:2px 3px}
+         .fm .ob17 th.ob,.fm .ob17 td.ob{width:13mm;text-align:center}
+         .fm .ob17 td.sj{font-size:9px}.fm .ob17 tr.res td{font-weight:700;height:10mm}</style>`);
+  }
+};
+
+function trnYmdToday() { const d = new Date(), p = n => ('0' + n).slice(-2); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); }
+
+function loadJobObservations() {
+  JobObservation._id = '';
+  JobObservation._sets = TrainingPlan._obsSets || null;
+  if (!JobObservation._sets) {
+    API.get('getObservationSets', { token: JobObservation.token() })
+      .then(r => { JobObservation._sets = r.sets || []; })
+      .catch(() => { JobObservation._sets = []; });
+  }
+  JobObservation.load();
+}
